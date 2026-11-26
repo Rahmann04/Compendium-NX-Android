@@ -82,6 +82,87 @@ jobs:
           path: dist/Compendium-*.zip
           retention-days: 7
 
+  android:
+    name: Android APK (arm64-v8a)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install host build tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential cmake ninja-build patchelf binutils zip unzip
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK and NDK
+        run: |
+          sdkmanager --install \
+            "platforms;android-31" \
+            "build-tools;31.0.0" \
+            "ndk;30.0.16248370"
+
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
+
+      - name: Build host libromfs generator
+        run: |
+          cmake -S library/borealis/library/lib/extern/libromfs/generator \
+            -B build-host-libromfs \
+            -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release
+
+          cmake --build build-host-libromfs --parallel 2
+
+      - name: Configure Android CMake
+        run: |
+          cmake -S . -B build-android -G Ninja \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DPLATFORM_ANDROID=ON \
+            -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK_HOME/build/cmake/android.toolchain.cmake" \
+            -DANDROID_ABI=arm64-v8a \
+            -DANDROID_PLATFORM=android-24 \
+            -DANDROID_STL=c++_static \
+            -DLIBROMFS_PREBUILT_GENERATOR="$GITHUB_WORKSPACE/build-host-libromfs/libromfs-generator" \
+            -DLIBROMFS_RESOURCE_LOCATION="$GITHUB_WORKSPACE/resources"
+
+      - name: Build Compendium native library
+        run: cmake --build build-android --parallel 2
+
+      - name: Package native library
+        run: |
+          test -s build-android/libCompendium.so
+          cp build-android/libCompendium.so \
+            library/borealis/android-project/app/src/main/jniLibs/arm64-v8a/libCompendium.so
+
+      - name: Build Android APK
+        working-directory: library/borealis/android-project
+        run: |
+          chmod +x gradlew
+          ./gradlew --no-daemon assembleDebug -PciBuild=true
+
+      - name: Verify APK
+        run: |
+          APK="library/borealis/android-project/app/build/outputs/apk/debug/app-debug.apk"
+          test -s "$APK"
+          ls -lh "$APK"
+
+      - name: Upload Android APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Compendium-NX-Android-arm64-debug
+          path: library/borealis/android-project/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+          retention-days: 7
+
   # A new version is released by the first push to main that has its VERSION and its notes
   # (docs/releases/v<version>.md); the tag is made here. Later pushes keep the release's file and
   # bring its text in line with the notes. See tools/publish_release.sh.
