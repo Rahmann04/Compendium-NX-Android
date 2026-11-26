@@ -1,0 +1,207 @@
+-- Build Type: Release
+-- building for SWITCH
+-- USE_GL3/4
+-- GLFW
+-- Using native GL
+-- The C compiler identification is GNU 15.2.0
+-- The CXX compiler identification is GNU 15.2.0
+-- Detected multilib folder: pic
+-- Detecting C compiler ABI info
+-- Detecting C compiler ABI info - done
+-- Check for working C compiler: /opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc - skipped
+-- Detecting C compile features
+-- Detecting C compile features - done
+-- Detecting CXX compiler ABI info
+-- Detecting CXX compiler ABI info - done
+-- Check for working CXX compiler: /opt/devkitpro/devkitA64/bin/aarch64-none-elf-g++ - skipped
+-- Detecting CXX compile features
+-- Detecting CXX compile features - done
+-- {fmt} version: 12.1.0
+-- Build type: Release
+System is unknown to cmake, create:
+Platform/NintendoSwitch to use this system, please post your config file on discourse.cmake.org so it can be added to cmake
+System is unknown to cmake, create:
+Platform/NintendoSwitch to use this system, please post your config file on discourse.cmake.org so it can be added to cmake
+-- Found PkgConfig: /opt/devkitpro/portlibs/switch/bin/aarch64-none-elf-pkg-config (found version "1.8.1")
+-- BOREALIS_SOURCE: /__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/archive;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/bfgrp;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/bfsar;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/bfwar;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/bfwav;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/bfwsd;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/switch-libpulsar/src/player;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/core;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/core/touch;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/views;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/views/cells;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/views/widgets;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/glad;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/libretro-common/compat;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/libretro-common/encodings;/__w/Compendium-NX-Android/Compendium-NX-Android/library/borealis/library/lib/extern/libretro-common/features
+-- borealis driver BOREALIS_USE_OPENGL
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD
+-- Performing Test CMAKE_HAVE_LIBC_PTHREAD - Success
+-- Found Threads: TRUE
+-- Configuring done (0.8s)
+-- Generating done (0.0s)
+-- Build files have been written to: /__w/Compendium-NX-Android/Compendium-NX-Android/build-switch
+[  1%] Building CXX object library/borealis/library/lib/extern/fmt/CMakeFiles/fmt.dir/src/format.o
+[  1%] Building CXX object library/borealis/library/CMakeFiles/tinyxml2.dir/lib/extern/tinyxml2/tinyxml2.o
+[  2%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/Utils.o
+[  2%] Built target app_resources
+[  2%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGConfig.o
+[  2%] Building CXX object CMakeFiles/mmcore.dir/source/core/archive.o
+[  3%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGEnums.o
+[  4%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGLayout.o
+[  4%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGNode.o
+[  5%] Linking CXX static library libtinyxml2.a
+[  5%] Built target tinyxml2
+[  6%] Building CXX object CMakeFiles/mmcore.dir/source/core/compat.o
+[  7%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGNodePrint.o
+[  8%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGStyle.o
+[  9%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/YGValue.o
+[ 10%] Building CXX object library/borealis/library/lib/extern/fmt/CMakeFiles/fmt.dir/src/os.o
+[ 10%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/Yoga.o
+[ 11%] Building CXX object CMakeFiles/mmcore.dir/source/core/cpk.o
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpk.cpp:562:6: warning: 'void mm::cpk::{anonymous}::copyRange(std::ifstream&, uint64_t, uint64_t, std::ofstream&, std::vector<char>&, const std::function<void(long unsigned int)>&)' defined but not used [-Wunused-function]
+  562 | void copyRange(std::ifstream& in, uint64_t offset, uint64_t size, std::ofstream& out, std::vector<char>& buf,
+      |      ^~~~~~~~~
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpk.cpp:471:22: warning: 'std::vector<unsigned char> mm::cpk::{anonymous}::headerChunk(const std::vector<Prepared>&, const Layout&, const mm::cpk::BuildOptions&)' defined but not used [-Wunused-function]
+  471 | std::vector<uint8_t> headerChunk(const std::vector<Prepared>& files, const Layout& l, const BuildOptions& o) {
+      |                      ^~~~~~~~~~~
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpk.cpp:438:8: warning: 'mm::cpk::{anonymous}::Layout mm::cpk::{anonymous}::layout(const std::vector<Prepared>&, uint16_t)' defined but not used [-Wunused-function]
+  438 | Layout layout(const std::vector<Prepared>& files, uint16_t align) {
+      |        ^~~~~~
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpk.cpp:362:23: warning: 'std::vector<mm::cpk::{anonymous}::Prepared> mm::cpk::{anonymous}::prepare(const std::vector<mm::cpk::Source>&, const mm::cpk::BuildOptions&)' defined but not used [-Wunused-function]
+  362 | std::vector<Prepared> prepare(const std::vector<Source>& sources, const BuildOptions& opts) {
+      |                       ^~~~~~~
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpk.cpp:346:7: warning: 'mm::cpk::{anonymous}::Table mm::cpk::{anonymous}::readChunk(std::ifstream&, uint64_t, const char*, uint64_t)' defined but not used [-Wunused-function]
+  346 | Table readChunk(std::ifstream& in, uint64_t offset, const char* magic, uint64_t fileSize) {
+      |       ^~~~~~~~~
+[ 12%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/event/event.o
+[ 13%] Building CXX object library/borealis/library/lib/extern/yoga/yoga/CMakeFiles/yogacore.dir/log.o
+[ 14%] Linking CXX static library libfmt.a
+[ 14%] Built target fmt
+[ 14%] Building CXX object CMakeFiles/mmcore.dir/source/core/crilayla.o
+[ 15%] Linking CXX static library libyogacore.a
+/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc-ar qc libyogacore.a CMakeFiles/yogacore.dir/Utils.o CMakeFiles/yogacore.dir/YGConfig.o CMakeFiles/yogacore.dir/YGEnums.o CMakeFiles/yogacore.dir/YGLayout.o CMakeFiles/yogacore.dir/YGNode.o CMakeFiles/yogacore.dir/YGNodePrint.o CMakeFiles/yogacore.dir/YGStyle.o CMakeFiles/yogacore.dir/YGValue.o CMakeFiles/yogacore.dir/Yoga.o CMakeFiles/yogacore.dir/event/event.o CMakeFiles/yogacore.dir/log.o
+/opt/devkitpro/devkitA64/bin/aarch64-none-elf-gcc-ranlib libyogacore.a
+[ 15%] Built target yogacore
+[ 16%] Building CXX object CMakeFiles/mmcore.dir/source/core/gamebanana.o
+[ 17%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/platforms/switch/switch_audio.o
+[ 17%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/platforms/switch/switch_font.o
+[ 18%] Building CXX object CMakeFiles/mmcore.dir/source/core/gamefiles.o
+[ 19%] Building CXX object CMakeFiles/mmcore.dir/source/core/games.o
+[ 20%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/platforms/switch/switch_ime.o
+[ 21%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/platforms/switch/switch_input.o
+[ 21%] Building CXX object CMakeFiles/mmcore.dir/source/core/http_curl.o
+[ 22%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/platforms/switch/switch_platform.o
+[ 22%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/platforms/glfw/glfw_video.o
+[ 23%] Building CXX object CMakeFiles/mmcore.dir/source/core/installer.o
+[ 24%] Building CXX object CMakeFiles/mmcore.dir/source/core/library.o
+[ 25%] Building CXX object CMakeFiles/mmcore.dir/source/core/log.o
+[ 26%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/nanovg/nanovg.o
+[ 27%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/archive/archive.o
+[ 27%] Building CXX object CMakeFiles/mmcore.dir/source/core/md5.o
+[ 28%] Building CXX object CMakeFiles/mmcore.dir/source/core/p5rcbt.o
+[ 28%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/archive/archive_file.o
+[ 29%] Building CXX object CMakeFiles/mmcore.dir/source/core/persona_layout.o
+[ 30%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfgrp/bfgrp.o
+[ 31%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfgrp/bfgrp_location.o
+[ 31%] Building CXX object CMakeFiles/mmcore.dir/source/core/smm.o
+[ 32%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfsar/bfsar.o
+[ 32%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfsar/bfsar_file.o
+[ 33%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfsar/bfsar_group.o
+[ 34%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfsar/bfsar_sound.o
+[ 35%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfsar/bfsar_string.o
+[ 35%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfsar/bfsar_wave_archive.o
+[ 36%] Building CXX object CMakeFiles/mmcore.dir/source/core/sysmodules.o
+[ 37%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwar/bfwar.o
+[ 38%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwar/bfwar_file.o
+[ 38%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwav/bfwav.o
+[ 39%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwav/bfwav_info.o
+[ 40%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwsd/bfwsd.o
+[ 41%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwsd/bfwsd_sound_data.o
+[ 41%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/bfwsd/bfwsd_wave_id.o
+[ 42%] Building CXX object CMakeFiles/mmcore.dir/source/core/util.o
+[ 43%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/player/player.o
+[ 44%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/player/player_load.o
+[ 44%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/switch-libpulsar/src/player/player_load_lookup.o
+[ 45%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/activity.o
+[ 46%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/animation.o
+[ 47%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/application.o
+[ 48%] Building CXX object CMakeFiles/mmcore.dir/source/core/cpktoolkit/cpk.o
+[ 48%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/bind.o
+[ 49%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/box.o
+[ 49%] Building CXX object CMakeFiles/mmcore.dir/source/core/cpktoolkit/utf.o
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpktoolkit/utf.cpp:256:14: warning: 'utf::Value utf::default_value_for(TypeId)' defined but not used [-Wunused-function]
+  256 | static Value default_value_for(TypeId type) {
+      |              ^~~~~~~~~~~~~~~~~
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/cpktoolkit/utf.cpp:129:17: warning: 'uint32_t utf::find_string_offset(const std::vector<unsigned char>&, const std::string&)' defined but not used [-Wunused-function]
+  129 | static uint32_t find_string_offset(const std::vector<uint8_t>& string_table, const std::string& str) {
+      |                 ^~~~~~~~~~~~~~~~~~
+[ 50%] Building CXX object CMakeFiles/mmcore.dir/source/core/cpktoolkit/crilayla.o
+[ 51%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/font.o
+[ 51%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/geometry.o
+[ 52%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/gesture.o
+[ 53%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/i18n.o
+[ 54%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/input.o
+[ 54%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/logger.o
+[ 55%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/notification_manager.o
+[ 56%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/platform.o
+[ 57%] Linking CXX static library libmmcore.a
+[ 57%] Built target mmcore
+[ 58%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/style.o
+[ 58%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/task.o
+[ 59%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/theme.o
+[ 60%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/thread.o
+[ 60%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/time.o
+[ 61%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/timer.o
+[ 62%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/touch/pan_gesture.o
+[ 63%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/touch/scroll_gesture.o
+[ 63%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/touch/tap_gesture.o
+[ 64%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/util.o
+[ 65%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/core/view.o
+[ 65%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/applet_frame.o
+[ 66%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/bottom_bar.o
+[ 67%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/button.o
+[ 68%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/cells/cell_bool.o
+[ 68%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/cells/cell_detail.o
+[ 69%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/cells/cell_input.o
+[ 70%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/cells/cell_radio.o
+[ 70%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/cells/cell_selector.o
+[ 71%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/cells/cell_slider.o
+[ 72%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/debug_layer.o
+[ 73%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/dialog.o
+[ 73%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/dropdown.o
+[ 74%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/edit_text_dialog.o
+[ 75%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/h_scrolling_frame.o
+[ 75%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/header.o
+[ 76%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/hint.o
+[ 77%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/image.o
+[ 78%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/label.o
+[ 78%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/progress_spinner.o
+[ 79%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/rectangle.o
+[ 80%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/recycler.o
+[ 81%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/scrolling_frame.o
+[ 81%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/sidebar.o
+[ 82%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/slider.o
+[ 83%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/tab_frame.o
+[ 83%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/widgets/account.o
+[ 84%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/widgets/battery.o
+[ 85%] Building CXX object library/borealis/library/CMakeFiles/borealis.dir/lib/views/widgets/wireless.o
+[ 86%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/glad/glad.o
+[ 86%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/libretro-common/compat/compat_strl.o
+[ 87%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/libretro-common/encodings/encoding_utf.o
+[ 88%] Building C object library/borealis/library/CMakeFiles/borealis.dir/lib/extern/libretro-common/features/features_cpu.o
+[ 88%] Linking CXX static library libborealis.a
+[ 88%] Built target borealis
+[ 88%] Building CXX object CMakeFiles/Compendium.dir/source/app/add_mods_page.o
+[ 89%] Building CXX object CMakeFiles/Compendium.dir/source/app/app_state.o
+[ 90%] Building CXX object CMakeFiles/Compendium.dir/source/app/browse_page.o
+[ 90%] Building CXX object CMakeFiles/Compendium.dir/source/app/debug_script.o
+[ 91%] Building CXX object CMakeFiles/Compendium.dir/source/app/install_flow.o
+[ 92%] Building CXX object CMakeFiles/Compendium.dir/source/app/link_server.o
+[ 93%] Building CXX object CMakeFiles/Compendium.dir/source/app/main.o
+[ 93%] Building CXX object CMakeFiles/Compendium.dir/source/app/main_activity.o
+[ 94%] Building CXX object CMakeFiles/Compendium.dir/source/app/my_mods_page.o
+[ 95%] Building CXX object CMakeFiles/Compendium.dir/source/app/platform.o
+[ 95%] Building CXX object CMakeFiles/Compendium.dir/source/app/settings_page.o
+[ 96%] Building CXX object CMakeFiles/Compendium.dir/source/app/sidebar.o
+[ 97%] Building CXX object CMakeFiles/Compendium.dir/source/app/ui.o
+[ 98%] Building CXX object CMakeFiles/Compendium.dir/source/third_party/qrcodegen/qrcodegen.o
+[ 98%] Building C object CMakeFiles/Compendium.dir/library/borealis/library/lib/platforms/switch/switch_wrapper.o
+[100%] Linking CXX executable Compendium.elf
+/opt/devkitpro/devkitA64/lib/gcc/aarch64-none-elf/15.2.0/../../../../aarch64-none-elf/bin/ld: libmmcore.a(http_curl.o): in function `mm::(anonymous namespace)::writeRangeToFile(char*, unsigned long, unsigned long, void*)':
+/__w/Compendium-NX-Android/Compendium-NX-Android/source/core/http_curl.cpp:52:(.text+0x10c): undefined reference to `pwrite'
+collect2: error: ld returned 1 exit status
+gmake[3]: *** [CMakeFiles/Compendium.dir/build.make:329: Compendium.elf] Error 1
+gmake[2]: *** [CMakeFiles/Makefile2:246: CMakeFiles/Compendium.dir/all] Error 2
+gmake[1]: *** [CMakeFiles/Makefile2:286: CMakeFiles/Compendium.nro.dir/rule] Error 2
+gmake: *** [Makefile:209: Compendium.nro] Error 2
