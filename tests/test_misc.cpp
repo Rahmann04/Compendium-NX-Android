@@ -91,6 +91,7 @@ TEST("version checks know P5R's versions") {
 TEST("log file: lines, and a new file once it's full") {
     t::TempDir tmp;
     auto file = tmp.path / "log.txt";
+    th::write(file, "previous session\n");
     log::open(file, 200);
     log::setClock([] { return std::string("T"); });
     log::info("first\nsecond");

@@ -1,7 +1,8 @@
 #pragma once
 
-// Compendium's log file (switch/Compendium/log.txt): what was installed, built and what went
-// wrong, for bug reports. Kept small: when it passes the size limit it's renamed to
+// Compendium's log file: Android uses the CompendiumNX root; other platforms use
+// their configured data directory. What was installed, built and what went wrong,
+// for bug reports. Kept small: when it passes the size limit it's renamed to
 // log.old.txt and a new one is started. Safe to call from any thread; does nothing until
 // open() is called (the tests and compcli don't write one).
 

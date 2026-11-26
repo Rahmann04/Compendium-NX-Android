@@ -266,8 +266,13 @@ SettingsPage::SettingsPage() : brls::Box(brls::Axis::COLUMN) {
     where->setText("Mod library folder");
     where->setDetailText("SD:/switch/Compendium");
     content->addView(where);
+#ifdef __ANDROID__
+    note("If something goes wrong, send /storage/emulated/0/CompendiumNX/log.txt with your report: it lists what was installed and "
+         "built, and any errors.");
+#else
     note("If something goes wrong, send switch/Compendium/log.txt with your report: it lists what was installed and "
          "built, and any errors.");
+#endif
 
     section("About");
     auto* about = ui::label(

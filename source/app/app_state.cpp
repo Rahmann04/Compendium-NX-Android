@@ -80,55 +80,25 @@ AppState::AppState() = default;
 
 
 void AppState::init() {
-    dataDir_ = platform::sdRoot() / "switch" / "Compendium";
-    mm::fs::create_directories(dataDir_);
-#ifdef __ANDROID__
-    // Preserve the original CPK pipeline with a valid empty PATCH1 on Android.
-    const auto androidPatch = dataDir_ / "original" / "p5r" / "PATCH1.CPK";
-    std::error_code patchEc;
-    mm::fs::create_directories(androidPatch.parent_path(), patchEc);
-    if (patchEc) throw std::runtime_error("Cannot create Android PATCH1 directory: " + patchEc.message());
-
-    bool rebuildPatch = !mm::fs::exists(androidPatch, patchEc);
-    if (patchEc) throw std::runtime_error("Cannot inspect Android PATCH1: " + patchEc.message());
-
-    if (!rebuildPatch) {
-        bool readable = false;
-        bool hasEntries = false;
-        try {
-            const auto existingPatch = mm::cpk::read(androidPatch);
-            readable = true;
-            hasEntries = !existingPatch.entries.empty();
-        } catch (const std::exception&) {
-            mm::fs::remove(androidPatch, patchEc);
-            if (patchEc) throw std::runtime_error("Cannot delete invalid Android PATCH1: " + patchEc.message());
-            rebuildPatch = true;
-        }
-
-        if (readable && hasEntries) {
-            throw std::runtime_error("Android PATCH1 hook must be empty; refusing to use game files.");
-        }
-    }
-
-    if (rebuildPatch) mm::cpk::build(androidPatch, {});
-
-    const auto emptyPatch = mm::cpk::read(androidPatch);
-    if (!emptyPatch.entries.empty()) {
-        throw std::runtime_error("Android PATCH1 hook must be empty; refusing to use game files.");
-    }
-#endif
-    std::error_code ec;
-    mm::fs::create_directories(inboxDir(), ec);
-    for (const auto& g : mm::kGames) gameVersions_[g.game] = platform::gameVersion(g.game);
-
-    // The log file: what was installed and built, and what went wrong.
+    // Open diagnostics before filesystem and CPK initialization.
     mm::log::setClock([] {
         auto tm = platform::localTime(static_cast<int64_t>(std::time(nullptr)));
         char buf[32];
         std::strftime(buf, sizeof buf, "%Y-%m-%d %H:%M:%S", &tm);
         return std::string(buf);
     });
-    mm::log::open(dataDir_ / "log.txt");
+#ifdef __ANDROID__
+    mm::log::open(platform::sdRoot() / "log.txt");
+#else
+    mm::log::open(platform::sdRoot() / "switch" / "Compendium" / "log.txt");
+#endif
+
+    dataDir_ = platform::sdRoot() / "switch" / "Compendium";
+    mm::fs::create_directories(dataDir_);
+    std::error_code ec;
+    mm::fs::create_directories(inboxDir(), ec);
+    for (const auto& g : mm::kGames) gameVersions_[g.game] = platform::gameVersion(g.game);
+
     {
         const auto& v = gameVersions_[mm::Game::P5R];
         mm::log::info(std::string("---- ") + APP_TITLE + " " + APP_VERSION + " started · Persona 5 Royal " +
@@ -190,10 +160,10 @@ void AppState::init() {
             mm::log::info(std::to_string(all.size()) + " mods installed, " + std::to_string(on) + " on · load mods with " +
                           mm::deployModeKey(lib.mode(mm::Game::P5R)) + " · " +
                           (b.target.empty() ? std::string("nothing built") : "built " + b.target + " (" + std::to_string(b.files) + " files)") +
-                          (lib.hasOriginalPatch(mm::Game::P5R) ? " · game's own PATCH1 kept" :
 #ifdef __ANDROID__
-                           " · Android mod-only build")
+                          " · Android mod-only build"
 #else
+                          (lib.hasOriginalPatch(mm::Game::P5R) ? " · game's own PATCH1 kept" :
                            " · game's own PATCH1 not read yet")
 #endif
                           +
@@ -362,7 +332,11 @@ void AppState::publishSnapshot(mm::Library& lib) {
         snap->builds[g.game] = lib.buildStatus(g.game);
         snap->modes[g.game] = lib.mode(g.game);
         snap->unmanaged[g.game] = lib.unmanagedOutput(g.game);
+#ifdef __ANDROID__
+        snap->haveOriginals[g.game] = false;
+#else
         snap->haveOriginals[g.game] = lib.hasOriginalPatch(g.game);
+#endif
     }
     snap->p5rcbtInstalled = mm::p5rcbt::installed(lib.sdRoot(), mm::Game::P5R);
     snap->smmMods = mm::smm::findMods(lib.sdRoot(), mm::Game::P5R);

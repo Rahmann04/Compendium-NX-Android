@@ -665,6 +665,7 @@ void Library::applyCpk(Game game, bool force, const ProgressFn& progress) {
     bool any = false;
     BuildStatus status;
     std::set<std::string> gamePatchFiles;  // the game's PATCH1/ files, as splitLayer's rest
+#if !defined(__ANDROID__) || !defined(MM_ANDROID_APP)
     if (hasOriginalPatch(game)) {
         auto orig = originalPatchCpk(game);
         for (const auto& e : cpk::read(orig).entries) {
@@ -680,6 +681,7 @@ void Library::applyCpk(Game game, bool force, const ProgressFn& progress) {
     else if (gs.mode == DeployMode::Patch1) {
         status.missingOriginals = true;
     }
+#endif
 #endif
     auto enabled = enabledAscending(game);
     for (size_t i = 0; i < enabled.size(); ++i) {

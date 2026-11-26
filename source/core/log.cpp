@@ -33,9 +33,8 @@ void open(const fs::path& file, uint64_t maxBytes) {
     limit = maxBytes;
     std::error_code ec;
     fs::create_directories(file.parent_path(), ec);
-    written = fs::exists(file, ec) ? fs::file_size(file, ec) : 0;
-    out = std::fopen(file.string().c_str(), "ab");
-    rotateIfFull();
+    written = 0;
+    out = std::fopen(file.string().c_str(), "wb");
 }
 
 void close() {
