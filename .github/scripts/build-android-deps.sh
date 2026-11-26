@@ -191,6 +191,7 @@ cmake_build curl "$SRC/curl" \
     -DBUILD_TESTING=OFF \
     -DCURL_USE_OPENSSL=ON \
     -DCURL_USE_LIBSSH2=ON \
+    -DCURL_USE_LIBPSL=OFF \
     -DCURL_ZLIB=ON \
     -DOPENSSL_ROOT_DIR="$PREFIX" \
     -DOPENSSL_INCLUDE_DIR="$PREFIX/include" \
