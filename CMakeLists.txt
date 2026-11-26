@@ -34,6 +34,11 @@ set(APP_AUTHOR "SantiBros")
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
+# Android size optimization: retain all used functionality.
+if(PLATFORM_ANDROID)
+    add_compile_options(-Oz -ffunction-sections -fdata-sections)
+endif()
+
 # ---------------------------------------------------------------- core library
 file(GLOB CORE_SOURCES source/core/*.cpp)
 add_library(mmcore STATIC ${CORE_SOURCES})
@@ -194,6 +199,10 @@ program_target(Compendium "${APP_SOURCES}")
 add_dependencies(Compendium app_resources)
 target_include_directories(Compendium PRIVATE source/app)
 target_compile_options(Compendium PRIVATE -ffunction-sections -fdata-sections -Wall)
+
+if(PLATFORM_ANDROID)
+    target_link_options(Compendium PRIVATE -Wl,--gc-sections)
+endif()
 target_compile_definitions(mmcore PRIVATE $<$<BOOL:${APP_BUILD}>:MM_ANDROID_APP>)
 
 target_compile_definitions(Compendium PRIVATE APP_VERSION="${PROJECT_VERSION}" APP_TITLE="${APP_TITLE}")

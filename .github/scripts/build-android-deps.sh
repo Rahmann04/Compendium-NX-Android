@@ -82,6 +82,8 @@ cmake_build() {
         -DANDROID_ABI="$ABI" \
         -DANDROID_PLATFORM="android-$API" \
         -DCMAKE_BUILD_TYPE=Release \
+        "-DCMAKE_C_FLAGS_RELEASE=-Oz -DNDEBUG" \
+        "-DCMAKE_CXX_FLAGS_RELEASE=-Oz -DNDEBUG" \
         -DCMAKE_INSTALL_PREFIX="$PREFIX" \
         -DCMAKE_INSTALL_LIBDIR=lib \
         -DCMAKE_POSITION_INDEPENDENT_CODE=ON \
@@ -112,7 +114,7 @@ fetch_commit bzip2 https://sourceware.org/git/bzip2.git \
 
 (
     cd "$SRC/bzip2"
-    make -j"$JOBS" CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-O2 -fPIC" LDFLAGS= libbz2.a
+    make -j"$JOBS" CC="$CC" AR="$AR" RANLIB="$RANLIB" CFLAGS="-Oz -fPIC" LDFLAGS= libbz2.a
     mkdir -p "$PREFIX/include" "$PREFIX/lib"
     install -m 644 bzlib.h "$PREFIX/include/bzlib.h"
     install -m 644 libbz2.a "$PREFIX/lib/libbz2.a"
@@ -156,7 +158,7 @@ fetch_tag openssl https://github.com/openssl/openssl.git openssl-3.5.4
 (
     cd "$SRC/openssl"
 
-    ./Configure android-arm64 \
+    CFLAGS="-Oz -fPIC" CXXFLAGS="-Oz -fPIC" ./Configure android-arm64 \
         -D__ANDROID_API__="$API" \
         no-shared \
         no-tests \
