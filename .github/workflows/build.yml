@@ -115,6 +115,11 @@ jobs:
 
           echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/30.0.16248370" >> "$GITHUB_ENV"
 
+      - name: Build Android static dependencies
+        run: |
+          chmod +x .github/scripts/build-android-deps.sh
+          BUILD_JOBS=2 .github/scripts/build-android-deps.sh
+
       - name: Build host libromfs generator
         run: |
           cmake -S library/borealis/library/lib/extern/libromfs/generator \
@@ -135,7 +140,8 @@ jobs:
             -DANDROID_STL=c++_static \
             -DLIBROMFS_PROJECT_NAME=Compendium \
             -DLIBROMFS_PREBUILT_GENERATOR="$GITHUB_WORKSPACE/build-host-libromfs/libromfs-generator" \
-            -DLIBROMFS_RESOURCE_LOCATION="$GITHUB_WORKSPACE/resources"
+            -DLIBROMFS_RESOURCE_LOCATION="$GITHUB_WORKSPACE/resources" \
+            -DANDROID_DEPS="$GITHUB_WORKSPACE/build-android-deps/install"
 
       - name: Build Compendium native library
         run: cmake --build build-android --parallel 2

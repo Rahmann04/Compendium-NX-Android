@@ -48,7 +48,10 @@ if(NINTENDO_SWITCH OR PLATFORM_SWITCH)
     target_link_libraries(mmcore PUBLIC curl mbedtls mbedx509 mbedcrypto archive zstd lz4 lzma bz2 expat z)
 elseif(PLATFORM_ANDROID)
     # Native Android ARM64 static dependencies
-    set(ANDROID_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android-deps/install")
+    set(ANDROID_DEPS
+        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android-deps/install"
+        CACHE PATH "Android ARM64 dependency install prefix"
+    )
 
     add_library(android_zlib STATIC IMPORTED GLOBAL)
     set_target_properties(android_zlib PROPERTIES
