@@ -1,6 +1,7 @@
 #include <fstream>
 
 #include "cpk.hpp"
+#include "cpktoolkit/crilayla.hpp"
 #include "helpers.hpp"
 #include "test.hpp"
 
@@ -118,4 +119,44 @@ TEST("cpk: damaged files are refused with a message") {
         threw = true;
     }
     CHECK(threw);
+}
+
+
+TEST("crilayla: optimized compressor round-trips varied data") {
+    const std::vector<size_t> sizes = {
+        256, 257, 258, 511, 512, 4096, 32768, 100000
+    };
+
+    std::mt19937 rng(0xC21A7A);
+
+    for (size_t size : sizes) {
+        std::vector<std::vector<uint8_t>> cases(3);
+
+        // Highly repetitive data.
+        cases[0].resize(size);
+        for (size_t i = 0; i < size; ++i)
+            cases[0][i] = static_cast<uint8_t>("ABRACADABRA"[i % 11]);
+
+        // Deterministic pseudo-random data.
+        cases[1].resize(size);
+        for (auto& byte : cases[1])
+            byte = static_cast<uint8_t>(rng());
+
+        // Mixed data with repeated regions and varying bytes.
+        cases[2].resize(size);
+        for (size_t i = 0; i < size; ++i) {
+            if (i % 4096 < 2048)
+                cases[2][i] = static_cast<uint8_t>((i % 97) * 3);
+            else
+                cases[2][i] = static_cast<uint8_t>(rng());
+        }
+
+        for (const auto& original : cases) {
+            auto packed = cpk_toolkit::crilayla::compress(original.data(), original.size());
+            CHECK(cpk_toolkit::crilayla::is_compressed(packed.data(), packed.size()));
+
+            auto unpacked = cpk_toolkit::crilayla::decompress(packed.data(), packed.size());
+            CHECK(unpacked == original);
+        }
+    }
 }

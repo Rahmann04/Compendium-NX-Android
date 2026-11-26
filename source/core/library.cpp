@@ -342,6 +342,10 @@ bool Library::hasOriginalPatch(Game game) const {
 }
 
 std::string Library::outputTarget(Game game, DeployMode mode) {
+#if defined(__ANDROID__) && defined(MM_ANDROID_APP)
+    if (game == Game::P5R && mode == DeployMode::Patch1)
+        return "/storage/emulated/0/Persona 5 Royal/mods/translation/romfs/CPK/PATCH1.CPK";
+#endif
     if (mode == DeployMode::P5rcbt) return "p5r/bind/Compendium.cpk";
     return contentsDir(game) + "/romfs/" + std::string(gameInfo(game).patchCpk);
 }
@@ -565,7 +569,7 @@ void Library::backupFile(const std::string& target) {
     std::error_code ec;
     if (!fs::exists(src, ec)) return;
     auto key = toLower(target);
-    auto dst = dataDir_ / "backup" / fs::path(target);
+    auto dst = dataDir_ / "backup" / (fs::path(target).is_absolute() ? fs::path(target).relative_path() : fs::path(target));
     if (backedUp_.count(key)) {
         // Already have the original; this file is stale (e.g. left by an interrupted change).
         fs::remove(src, ec);
@@ -580,7 +584,7 @@ void Library::restoreBackup(const std::string& target) {
     auto key = toLower(target);
     auto it = backedUp_.find(key);
     if (it == backedUp_.end()) return;
-    auto src = dataDir_ / "backup" / fs::path(it->second);
+    auto src = dataDir_ / "backup" / (fs::path(it->second).is_absolute() ? fs::path(it->second).relative_path() : fs::path(it->second));
     std::error_code ec;
     if (fs::exists(src, ec)) moveFile(src, sdRoot_ / fs::path(it->second));
     log::info("put back " + it->second);
@@ -629,7 +633,16 @@ void Library::applySdFiles(const ProgressFn& progress) {
 void Library::removeOutput(GameState& gs) {
     if (gs.output.empty()) return;
     log::info("no mods on: removed " + gs.output);
+#if defined(__ANDROID__) && defined(MM_ANDROID_APP)
+    if (gs.output == "/storage/emulated/0/Persona 5 Royal/mods/translation/romfs/CPK/PATCH1.CPK") {
+        std::error_code ec;
+        fs::remove(fs::path(gs.output), ec);
+    } else {
+        removeFileAndPrune(sdRoot_ / fs::path(gs.output), sdRoot_);
+    }
+#else
     removeFileAndPrune(sdRoot_ / fs::path(gs.output), sdRoot_);
+#endif
     restoreBackup(gs.output);
     gs.output.clear();
     gs.outputKey.clear();
@@ -659,10 +672,15 @@ void Library::applyCpk(Game game, bool force, const ProgressFn& progress) {
             if (auto [folder, rest] = splitLayer(e.path()); folder == "patch1") gamePatchFiles.insert(rest);
         }
         key += "original " + std::to_string(fs::file_size(orig, ec)) + "\n";
+#if !defined(__ANDROID__) || !defined(MM_ANDROID_APP)
         if (gs.mode == DeployMode::Patch1) status.withOriginals = true;
-    } else if (gs.mode == DeployMode::Patch1) {
+#endif
+    }
+#if !defined(__ANDROID__) || !defined(MM_ANDROID_APP)
+    else if (gs.mode == DeployMode::Patch1) {
         status.missingOriginals = true;
     }
+#endif
     auto enabled = enabledAscending(game);
     for (size_t i = 0; i < enabled.size(); ++i) {
         const auto* m = enabled[i];
@@ -699,7 +717,9 @@ void Library::applyCpk(Game game, bool force, const ProgressFn& progress) {
     // Something we didn't build is where the archive goes (mods copied by hand): keep it.
     if (gs.output != target && fs::exists(dst, ec)) backupFile(target);
 
-    uint64_t size = cpk::predictSize(sources);
+    cpk::BuildOptions build_options;
+    build_options.compress = true;
+    uint64_t size = cpk::predictSize(sources, build_options);
     if (freeSpace_) {
         uint64_t free = freeSpace_();
         uint64_t existing = fs::exists(dst, ec) ? fs::file_size(dst, ec) : 0;
@@ -709,7 +729,7 @@ void Library::applyCpk(Game game, bool force, const ProgressFn& progress) {
     auto tmp = dst;
     tmp += ".tmp";
     const std::string what = "Building " + dst.filename().string();
-    auto result = cpk::build(tmp, sources, {}, [&](uint64_t done, uint64_t total) {
+    auto result = cpk::build(tmp, sources, build_options, [&](uint64_t done, uint64_t total) {
         if (progress) progress(done, total, what);
         return true;
     });

@@ -3,9 +3,40 @@
 #include "app_state.hpp"
 #include "ui.hpp"
 
+#ifdef __ANDROID__
+#include <SDL_system.h>
+#include <jni.h>
+#endif
+
 namespace app {
 
 namespace {
+#ifdef __ANDROID__
+void launchP5R() {
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (!env) return;
+    jclass cls = env->FindClass("org/libsdl/app/PlatformUtils");
+    if (!cls) {
+        env->ExceptionClear();
+        brls::Application::notify("P5R launcher is unavailable");
+        return;
+    }
+    jmethodID method = env->GetStaticMethodID(cls, "launchP5R", "()V");
+    if (!method) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        brls::Application::notify("P5R launcher method is unavailable");
+        return;
+    }
+    env->CallStaticVoidMethod(cls, method);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        brls::Application::notify("Could not open P5R launcher");
+    }
+    env->DeleteLocalRef(cls);
+}
+#endif
+
 constexpr float kExpandedWidth = 300;
 constexpr float kCollapsedWidth = 76;
 }  // namespace
@@ -62,6 +93,20 @@ Sidebar::Sidebar() : brls::Box(brls::Axis::COLUMN) {
     });
     gameRow_->updateActionHint(brls::BUTTON_A, "Switch game");
     addView(gameRow_);
+
+#ifdef __ANDROID__
+    playRow_ = makeRow(ui::icon::game, "Play P5R", &playIcon_, &playText_);
+    ui::tappable(playRow_, ui::Tap::Act);
+    playRow_->setHeight(52);
+    playRow_->setMarginBottom(14);
+    playIcon_->setTextColor(ui::accent());
+    playRow_->registerClickAction([](brls::View*) {
+        launchP5R();
+        return true;
+    });
+    playRow_->updateActionHint(brls::BUTTON_A, "Play");
+    addView(playRow_);
+#endif
 
     const std::pair<Page, std::pair<const char*, const char*>> defs[] = {
         {Page::Browse, {ui::icon::browse, "Browse"}},
@@ -121,6 +166,9 @@ void Sidebar::setExpanded(bool expanded) {
     auto vis = expanded ? brls::Visibility::VISIBLE : brls::Visibility::GONE;
     setWidth(expanded ? kExpandedWidth : kCollapsedWidth);
     gameName_->getParent()->setVisibility(vis);
+#ifdef __ANDROID__
+    if (playText_) playText_->setVisibility(vis);
+#endif
     footer_->setVisibility(vis);
     for (auto& i : items_) {
         i.text->setVisibility(vis);

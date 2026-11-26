@@ -220,7 +220,7 @@ BrowsePage::BrowsePage(bool searchMode) : brls::Box(brls::Axis::ROW), searchMode
 
     if (searchMode_) {
         updateHeader();
-        showEmptyState("Find mods by name, author or keyword, or type a mod number (the end of its GameBanana link).", "Search GameBanana");
+        showEmptyState("Find mods across all sources by name, author or keyword, or enter a mod number.", "Search all sources");
     } else {
         reload();
     }
@@ -361,7 +361,7 @@ void BrowsePage::loadMore() {
                 result.totalCount = 1;
                 result.isLast = true;
             } else {
-                result = search ? AppState::get().gamebanana().search(gbGame, query, page)
+                result = search ? AppState::get().searchGlobal(query, page, game)
                                 : AppState::get().gamebanana().list(gbGame, sort, page, 30);
                 fetched = result.mods.size();
             }
@@ -375,7 +375,7 @@ void BrowsePage::loadMore() {
             if (!error.empty()) {
                 if (items_.empty())
                     showEmptyState(numberLookup ? error
-                                   : std::string("Couldn't reach GameBanana") +
+                                   : std::string("Couldn't reach any search source") +
                                          ". Check your internet connection.\n\n" + error,
                                    search ? "Search again" : "Try again");
                 else
@@ -423,7 +423,7 @@ void BrowsePage::openSearchKeyboard() {
             listEmpty_->setVisibility(brls::Visibility::GONE);
             reload();
         },
-        "Search mods", "Name, author, keyword or mod number", 48, query_);
+        "Search all sources", "Name, author, keyword or mod number", 48, query_);
 }
 
 void BrowsePage::appendRows(size_t from) {

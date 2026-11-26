@@ -1,10 +1,17 @@
 #include <curl/curl.h>
 
+#include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstdio>
+#include <exception>
+#include <cerrno>
+#include <fcntl.h>
+#include <unistd.h>
 #include <memory>
 #include <mutex>
 #include <stdexcept>
+#include <thread>
 #include <vector>
 
 #include "http.hpp"
@@ -27,16 +34,102 @@ size_t writeToFile(char* ptr, size_t size, size_t nmemb, void* userdata) {
     return std::fwrite(ptr, size, nmemb, static_cast<FILE*>(userdata)) * size;
 }
 
+struct RangeWriter {
+    int fd;
+    uint64_t offset;
+    uint64_t expected;
+    uint64_t written = 0;
+};
+
+size_t writeRangeToFile(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    auto* w = static_cast<RangeWriter*>(userdata);
+    if (size && nmemb > SIZE_MAX / size) return 0;
+    const size_t bytes = size * nmemb;
+    if (w->written > w->expected || bytes > w->expected - w->written) return 0;
+
+    size_t done = 0;
+    while (done < bytes) {
+        const auto n = pwrite(w->fd, ptr + done, bytes - done,
+                              static_cast<off_t>(w->offset + w->written + done));
+        if (n < 0 && errno == EINTR) continue;
+        if (n <= 0) return done;
+        done += static_cast<size_t>(n);
+    }
+    w->written += done;
+    return done;
+}
+
+struct RangeHeader {
+    unsigned long long from = 0;
+    unsigned long long to = 0;
+    unsigned long long total = 0;
+    bool valid = false;
+};
+
+size_t rangeHeaderCb(char* ptr, size_t size, size_t nmemb, void* userdata) {
+    if (size && nmemb > SIZE_MAX / size) return 0;
+    const size_t bytes = size * nmemb;
+    auto* h = static_cast<RangeHeader*>(userdata);
+    std::string line(ptr, bytes);
+    std::string lower = line;
+    for (auto& c : lower)
+        c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+
+    if (lower.rfind("http/", 0) == 0) *h = RangeHeader{};
+    if (lower.rfind("content-range:", 0) == 0) {
+        unsigned long long from, to, total;
+        if (std::sscanf(lower.c_str() + 14, " bytes %llu-%llu/%llu",
+                        &from, &to, &total) == 3) {
+            h->from = from;
+            h->to = to;
+            h->total = total;
+            h->valid = true;
+        }
+    }
+    return bytes;
+}
+
 // Called about once a second, also while connecting, so cancelAll() stops every request quickly.
 struct Progress {
     const std::atomic<bool>* cancelled;
     const DownloadProgressFn* fn = nullptr;
+    std::atomic<bool>* localCancelled = nullptr;
+    std::mutex* progressMutex = nullptr;
+    std::atomic<uint64_t>* workerDone = nullptr;
+    size_t workerCount = 0;
+    size_t workerIndex = 0;
+    uint64_t totalBytes = 0;
+    std::atomic<bool>* callbackCancelled = nullptr;
 };
 
 int progressCb(void* userdata, curl_off_t dltotal, curl_off_t dlnow, curl_off_t, curl_off_t) {
-    auto* p = static_cast<const Progress*>(userdata);
-    if (*p->cancelled) return 1;  // abort
-    if (p->fn && *p->fn && !(*p->fn)(static_cast<uint64_t>(dlnow), static_cast<uint64_t>(dltotal))) return 1;
+    auto* p = static_cast<Progress*>(userdata);
+    if (*p->cancelled || (p->localCancelled && *p->localCancelled)) return 1;
+
+    if (p->workerDone && p->workerCount) {
+        p->workerDone[p->workerIndex].store(static_cast<uint64_t>(dlnow));
+    }
+
+    if (p->fn && *p->fn) {
+        bool keepGoing = true;
+        if (p->progressMutex) {
+            std::lock_guard lock(*p->progressMutex);
+            uint64_t done = static_cast<uint64_t>(dlnow);
+            if (p->workerDone && p->workerCount) {
+                done = 0;
+                for (size_t i = 0; i < p->workerCount; ++i)
+                    done += p->workerDone[i].load();
+            }
+            keepGoing = (*p->fn)(done, p->totalBytes ? p->totalBytes : static_cast<uint64_t>(dltotal));
+        } else {
+            keepGoing = (*p->fn)(static_cast<uint64_t>(dlnow), static_cast<uint64_t>(dltotal));
+        }
+        if (!keepGoing) {
+            if (p->callbackCancelled) p->callbackCancelled->store(true);
+            if (p->localCancelled) p->localCancelled->store(true);
+            return 1;
+        }
+    }
     return 0;
 }
 
@@ -108,6 +201,7 @@ CURL* makeHandle(Lease& lease, const std::string& url, const std::string& userAg
     if (*progress.cancelled) throw std::runtime_error("cancelled");
     CURL* h = lease.fresh();
     curl_easy_setopt(h, CURLOPT_URL, url.c_str());
+    curl_easy_setopt(h, CURLOPT_BUFFERSIZE, 512L * 1024L);
     curl_easy_setopt(h, CURLOPT_NOSIGNAL, 1L);  // required with threads (DNS timeouts use signals otherwise)
     curl_easy_setopt(h, CURLOPT_NOPROGRESS, 0L);
     curl_easy_setopt(h, CURLOPT_XFERINFOFUNCTION, progressCb);
@@ -206,54 +300,224 @@ std::string CurlHttpClient::get(const std::string& url) {
 }
 
 void CurlHttpClient::download(const std::string& url, const fs::path& dest, const DownloadProgressFn& progress) {
+    constexpr uint64_t parallelThreshold = 8ULL * 1024 * 1024;
+    constexpr size_t connectionCount = 4;
+
     fs::create_directories(dest.parent_path());
     auto part = dest;
     part += ".part";
-    Progress prog{&cancelled_, &progress};
-    FILE* f = nullptr;
+
     auto discard = [&] {
-        if (f) std::fclose(f);
-        f = nullptr;
         std::error_code ec;
         fs::remove(part, ec);
     };
-    Lease lease;
-    CURL* h = nullptr;
-    CURLcode rc;
-    try {
-        // Tried again only when nothing arrived: a half-done big download isn't restarted.
-        bool started = false;
-        auto attempt = [&](int) {
-            discard();
-            f = std::fopen(part.string().c_str(), "wb");
-            if (!f) throw std::runtime_error("cannot write " + part.string());
-            std::setvbuf(f, nullptr, _IOFBF, 1 << 18);  // big buffer: SD card writes are slow in small chunks
-            h = makeHandle(lease, url, userAgent_, caBundle_, prog);
-            curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, writeToFile);
-            curl_easy_setopt(h, CURLOPT_WRITEDATA, f);
-            auto r = curl_easy_perform(h);
-            curl_off_t got = 0;
-            curl_easy_getinfo(h, CURLINFO_SIZE_DOWNLOAD_T, &got);
-            started = got > 0;
-            return r;
-        };
-        rc = attempt(0);
-        if (rc != CURLE_OK && transient(rc) && !started && !cancelled_) rc = attempt(1);
-        check(h, rc);
-    } catch (...) {
-        discard();
-        throw;
-    }
-    if (std::fclose(f) != 0) {
-        f = nullptr;
-        discard();
-        throw std::runtime_error("write failed (SD card full?)");
-    }
-    std::error_code ec;
-    fs::remove(dest, ec);
-    fs::rename(part, dest);
-}
 
+    auto finish = [&] {
+        std::error_code ec;
+        fs::remove(dest, ec);
+        fs::rename(part, dest);
+    };
+
+    auto singleDownload = [&] {
+        Progress prog{&cancelled_, &progress};
+        FILE* f = nullptr;
+        Lease lease;
+        CURL* h = nullptr;
+
+        auto cleanup = [&] {
+            if (f) std::fclose(f);
+            f = nullptr;
+            discard();
+        };
+
+        try {
+            bool started = false;
+            auto attempt = [&](int) {
+                if (f) std::fclose(f);
+                f = std::fopen(part.string().c_str(), "wb");
+                if (!f) throw std::runtime_error("cannot write " + part.string());
+                std::setvbuf(f, nullptr, _IOFBF, 1 << 18);
+                h = makeHandle(lease, url, userAgent_, caBundle_, prog);
+                curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, writeToFile);
+                curl_easy_setopt(h, CURLOPT_WRITEDATA, f);
+                auto r = curl_easy_perform(h);
+                curl_off_t got = 0;
+                curl_easy_getinfo(h, CURLINFO_SIZE_DOWNLOAD_T, &got);
+                started = got > 0;
+                return r;
+            };
+
+            auto rc = attempt(0);
+            if (rc != CURLE_OK && transient(rc) && !started && !cancelled_)
+                rc = attempt(1);
+            check(h, rc);
+
+            if (std::fclose(f) != 0) {
+                f = nullptr;
+                throw std::runtime_error("write failed (SD card full?)");
+            }
+            f = nullptr;
+        } catch (...) {
+            cleanup();
+            throw;
+        }
+    };
+
+    if (cancelled_) throw std::runtime_error("cancelled");
+
+    int64_t fileSize = -1;
+    try {
+        fileSize = contentLength(url);
+    } catch (...) {
+        if (cancelled_) throw;
+    }
+
+    bool parallelDone = false;
+
+    if (fileSize >= static_cast<int64_t>(parallelThreshold) && !cancelled_) {
+        std::string finalUrl;
+        try {
+            auto probe = getRange(url, 0, 0, &finalUrl);
+            if (probe.size() == 1 && !finalUrl.empty()) {
+                const uint64_t total = static_cast<uint64_t>(fileSize);
+                const int fd = ::open(part.string().c_str(), O_CREAT | O_TRUNC | O_WRONLY, 0666);
+                if (fd < 0) throw std::runtime_error("cannot create temporary download file");
+                if (ftruncate(fd, static_cast<off_t>(total)) != 0) {
+                    ::close(fd);
+                    discard();
+                    throw std::runtime_error("cannot allocate temporary download file");
+                }
+
+                std::atomic<bool> localCancelled{false};
+                std::atomic<bool> callbackCancelled{false};
+                std::atomic<bool> failed{false};
+                std::atomic<uint64_t> workerDone[connectionCount]{};
+                std::mutex progressMutex;
+                std::mutex errorMutex;
+                std::exception_ptr workerError;
+                std::vector<std::thread> workers;
+                workers.reserve(connectionCount);
+
+                const uint64_t chunkSize = (total + connectionCount - 1) / connectionCount;
+
+                try {
+                    for (size_t i = 0; i < connectionCount; ++i) {
+                        const uint64_t from = i * chunkSize;
+                        if (from >= total) break;
+                        const uint64_t to = std::min(total - 1, from + chunkSize - 1);
+                        const uint64_t expected = to - from + 1;
+
+                        workers.emplace_back([&, i, from, to, expected] {
+                            try {
+                                RangeWriter writer{fd, from, expected};
+                                RangeHeader header;
+                                Progress prog{&cancelled_};
+                                prog.fn = &progress;
+                                prog.localCancelled = &localCancelled;
+                                prog.progressMutex = &progressMutex;
+                                prog.workerDone = workerDone;
+                                prog.workerCount = connectionCount;
+                                prog.workerIndex = i;
+                                prog.totalBytes = total;
+                                prog.callbackCancelled = &callbackCancelled;
+
+                                Lease lease;
+                                CURL* h = nullptr;
+                                const auto range = std::to_string(from) + "-" + std::to_string(to);
+
+                                auto rc = withRetry(cancelled_, [&](int) {
+                                    writer.written = 0;
+                                    header = RangeHeader{};
+                                    workerDone[i].store(0);
+
+                                    h = makeHandle(lease, finalUrl, userAgent_, caBundle_, prog);
+                                    curl_easy_setopt(h, CURLOPT_RANGE, range.c_str());
+                                    curl_easy_setopt(h, CURLOPT_ACCEPT_ENCODING, "identity");
+                                    curl_easy_setopt(h, CURLOPT_HTTP_CONTENT_DECODING, 0L);
+                                    curl_easy_setopt(h, CURLOPT_HEADERFUNCTION, rangeHeaderCb);
+                                    curl_easy_setopt(h, CURLOPT_HEADERDATA, &header);
+                                    curl_easy_setopt(h, CURLOPT_WRITEFUNCTION, writeRangeToFile);
+                                    curl_easy_setopt(h, CURLOPT_WRITEDATA, &writer);
+                                    curl_easy_setopt(h, CURLOPT_TIMEOUT, 0L);
+                                    return curl_easy_perform(h);
+                                });
+
+                                if (rc != CURLE_OK) {
+                                    if (!localCancelled && !cancelled_)
+                                        throw std::runtime_error(std::string("range transfer failed: ") + curl_easy_strerror(rc));
+                                    return;
+                                }
+
+                                long status = 0;
+                                curl_easy_getinfo(h, CURLINFO_RESPONSE_CODE, &status);
+                                if (status != 206 || !header.valid ||
+                                    header.from != from || header.to != to ||
+                                    header.total != total || writer.written != expected) {
+                                    throw std::runtime_error("server returned an invalid byte range");
+                                }
+                                workerDone[i].store(expected);
+                            } catch (...) {
+                                failed.store(true);
+                                localCancelled.store(true);
+                                std::lock_guard lock(errorMutex);
+                                if (!workerError) workerError = std::current_exception();
+                            }
+                        });
+                    }
+                } catch (...) {
+                    localCancelled.store(true);
+                    for (auto& worker : workers)
+                        if (worker.joinable()) worker.join();
+                    ::close(fd);
+                    discard();
+                    throw;
+                }
+
+                for (auto& worker : workers)
+                    if (worker.joinable()) worker.join();
+
+                const bool cancelled = cancelled_ || callbackCancelled;
+                const bool success = !failed && !cancelled &&
+                    std::all_of(workerDone, workerDone + connectionCount,
+                                [](const std::atomic<uint64_t>& n) { return n.load() > 0; });
+
+                if (::close(fd) != 0 && success) {
+                    discard();
+                    throw std::runtime_error("failed to close temporary download file");
+                }
+
+                if (cancelled) {
+                    discard();
+                    throw std::runtime_error("cancelled");
+                }
+
+                if (success) {
+                    parallelDone = true;
+                } else {
+                    discard();
+                }
+            }
+        } catch (...) {
+            if (cancelled_) throw;
+            discard();
+        }
+    }
+
+    if (!parallelDone) {
+        if (cancelled_) {
+            discard();
+            throw std::runtime_error("cancelled");
+        }
+        singleDownload();
+    }
+
+    if (cancelled_) {
+        discard();
+        throw std::runtime_error("cancelled");
+    }
+
+    finish();
+}
 std::string CurlHttpClient::getRange(const std::string& url, uint64_t from, uint64_t to, std::string* finalUrl) {
     struct State {
         std::string body;

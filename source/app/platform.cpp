@@ -9,6 +9,10 @@
 
 #include "cpk.hpp"
 
+#ifdef __ANDROID__
+#include <SDL_system.h>
+#endif
+
 #ifdef __SWITCH__
 #include <switch.h>
 #endif
@@ -30,6 +34,8 @@ void exit() {
 mm::fs::path sdRoot() {
 #ifdef __SWITCH__
     return "sdmc:/";
+#elif defined(__ANDROID__)
+    return mm::fs::path("/storage/emulated/0/CompendiumNX");
 #else
     if (const char* env = std::getenv("MM_SD_ROOT")) return env;
     return mm::fs::current_path() / "sd";
@@ -91,6 +97,9 @@ bool runningAsGame(mm::Game game) {
     u64 current = 0;
     u64 wanted = std::stoull(std::string(mm::gameInfo(game).titleId), nullptr, 16);
     return R_SUCCEEDED(svcGetInfo(&current, InfoType_ProgramId, CUR_PROCESS_HANDLE, 0)) && current == wanted;
+#elif defined(__ANDROID__)
+    (void)game;
+    return false; // Android always builds mod-only CPKs; never reads game RomFS.
 #else
     (void)game;
     return std::getenv("MM_GAME_ROMFS_P5R") != nullptr;
@@ -103,16 +112,21 @@ namespace {
 struct GameFs {
     mm::fs::path root;
     explicit GameFs(mm::Game game) {
+#ifdef __ANDROID__
+        (void)game;
+        throw std::runtime_error("Game RomFS access is disabled on Android.");
+#elif defined(__SWITCH__)
         if (!runningAsGame(game))
             throw std::runtime_error("Open the app by holding L and R while starting " +
                                      std::string(mm::gameInfo(game).displayName) + ", so it can read the game's files.");
-#ifdef __SWITCH__
         Result rc = romfsMountFromCurrentProcess("gamefs");
         if (R_FAILED(rc))
             throw std::runtime_error("Couldn't open the game's files (error " + std::to_string(2000 + R_MODULE(rc)) + "-" +
                                      std::to_string(R_DESCRIPTION(rc)) + ").");
         root = "gamefs:/";
 #else
+        if (!runningAsGame(game))
+            throw std::runtime_error("Game files are unavailable.");
         root = std::getenv("MM_GAME_ROMFS_P5R");
 #endif
     }

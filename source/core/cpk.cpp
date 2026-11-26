@@ -1,4 +1,7 @@
 #include "cpk.hpp"
+#include "crilayla.hpp"
+#include "cpktoolkit/cpk.hpp"
+#include <chrono>
 
 #include <algorithm>
 #include <cctype>
@@ -109,7 +112,7 @@ Table parseTable(std::vector<uint8_t> buf) {
     if (buf.size() < 0x20 || std::memcmp(buf.data(), "@UTF", 4) != 0) corrupt("no @UTF table");
     const uint8_t* p = buf.data();
     uint64_t size = uint64_t(be32(p + 4)) + 8;
-    uint64_t rowsOff = uint64_t(be16(p + 10)) + 8;
+    uint64_t rowsOff = uint64_t(be32(p + 8)) + 8;
     uint64_t stringsOff = uint64_t(be32(p + 12)) + 8;
     uint64_t dataOff = uint64_t(be32(p + 16)) + 8;
     uint32_t nameOff = be32(p + 20);
@@ -188,86 +191,137 @@ Table parseTable(std::vector<uint8_t> buf) {
 }
 
 // Columns marked constant are written once (CRI's "default" storage); the rest per row.
+enum class Storage { Constant, PerRow, Data };
+
 struct OutColumn {
     std::string name;
     uint8_t type;
-    bool constant = false;
+    Storage storage = Storage::Data;
 };
 
 std::vector<uint8_t> buildTable(const std::string& name, const std::vector<OutColumn>& cols,
                                 const std::vector<std::vector<Value>>& rows) {
-    std::vector<uint8_t> strings;
+    std::vector<uint8_t> strings, dataTable;
     std::map<std::string, uint32_t> stringAt;
-    auto addString = [&](const std::string& s) -> uint32_t {
-        auto it = stringAt.find(s);
+
+    auto addString = [&](const std::string& value) -> uint32_t {
+        auto it = stringAt.find(value);
         if (it != stringAt.end()) return it->second;
-        uint32_t off = uint32_t(strings.size());
-        strings.insert(strings.end(), s.begin(), s.end());
+        uint32_t offset = uint32_t(strings.size());
+        strings.insert(strings.end(), value.begin(), value.end());
         strings.push_back(0);
-        stringAt.emplace(s, off);
-        return off;
+        stringAt.emplace(value, offset);
+        return offset;
     };
+
     addString("<NULL>");
     uint32_t nameOff = addString(name);
+
     std::vector<uint32_t> colNames;
     for (const auto& c : cols) colNames.push_back(addString(c.name));
-    for (size_t c = 0; c < cols.size(); ++c)
-        if (cols[c].type == Str)
-            for (const auto& r : rows) addString(r[c].s);
 
-    uint32_t schema = 0, rowWidth = 0;
-    for (const auto& c : cols) {
-        schema += 5 + (c.constant ? typeSize(c.type) : 0);
-        if (!c.constant) rowWidth += typeSize(c.type);
+    for (size_t c = 0; c < cols.size(); ++c) {
+        if (cols[c].type != Str) continue;
+        if (cols[c].storage == Storage::PerRow && !rows.empty() && !rows[0][c].s.empty())
+            addString(rows[0][c].s);
     }
-    uint32_t rowsOff = 0x20 + schema;
-    uint32_t stringsOff = rowsOff + rowWidth * uint32_t(rows.size());
-    uint32_t total = stringsOff + uint32_t(strings.size());
-    uint32_t padded = uint32_t(alignUp(total, 8));
-    uint32_t dataOff = padded;  // no variable-length data is written
 
-    std::vector<uint8_t> out(padded, 0);
+    if (name == "CpkTocInfo" || name == "CpkEtocInfo") addString("");
+
+    for (const auto& row : rows) {
+        for (size_t c = 0; c < cols.size(); ++c) {
+            if (cols[c].storage != Storage::Data || cols[c].type != Str) continue;
+            if (!row[c].s.empty()) addString(row[c].s);
+        }
+    }
+
+    auto writeValue = [&](std::vector<uint8_t>& out, uint8_t type, const Value& v) {
+        size_t at = out.size();
+        switch (type) {
+            case U8: case S8:
+                out.push_back(uint8_t(v.i));
+                break;
+            case U16: case S16:
+                out.resize(at + 2);
+                putBe16(out, at, uint16_t(v.i));
+                break;
+            case U32: case S32:
+                out.resize(at + 4);
+                putBe32(out, at, uint32_t(v.i));
+                break;
+            case U64: case S64:
+                out.resize(at + 8);
+                putBe64(out, at, v.i);
+                break;
+            case Str: {
+                auto it = stringAt.find(v.s);
+                uint32_t offset = it == stringAt.end() ? 0 : it->second;
+                out.resize(at + 4);
+                putBe32(out, at, offset);
+                break;
+            }
+            case Data:
+                out.resize(at + 8, 0);
+                break;
+            default:
+                break;
+        }
+    };
+
+    std::vector<uint8_t> columnData;
+    uint16_t rowWidth = 0;
+
+    for (size_t c = 0; c < cols.size(); ++c) {
+        const auto& col = cols[c];
+        uint8_t flag = kFlagName;
+        if (col.storage == Storage::PerRow) flag |= kFlagDefault;
+        else if (col.storage == Storage::Data) flag |= kFlagRow;
+
+        columnData.push_back(uint8_t(flag | col.type));
+        size_t at = columnData.size();
+        columnData.resize(at + 4);
+        putBe32(columnData, at, colNames[c]);
+
+        if (col.storage == Storage::PerRow) {
+            Value value = rows.empty() ? Value{} : rows[0][c];
+            writeValue(columnData, col.type, value);
+        } else if (col.storage == Storage::Data) {
+            rowWidth += uint16_t(typeSize(col.type));
+        }
+    }
+
+    std::vector<uint8_t> rowData;
+    for (const auto& row : rows) {
+        for (size_t c = 0; c < cols.size(); ++c) {
+            if (cols[c].storage == Storage::Data)
+                writeValue(rowData, cols[c].type, row[c]);
+        }
+    }
+
+    if (name == "CpkHeader") strings.insert(strings.end(), 7, 0);
+    else if (name == "CpkTocInfo") strings.insert(strings.end(), 4, 0);
+    else if (name == "CpkEtocInfo") strings.insert(strings.end(), 6, 0);
+
+    uint32_t rowsOff = uint32_t(columnData.size()) + 32;
+    uint32_t stringsOff = rowsOff + uint32_t(rowData.size());
+    uint32_t dataOff = stringsOff + uint32_t(strings.size());
+    uint32_t tableSize = dataOff + uint32_t(dataTable.size());
+
+    std::vector<uint8_t> out(32, 0);
     std::memcpy(out.data(), "@UTF", 4);
-    putBe32(out, 4, padded - 8);
-    putBe16(out, 8, 1);
-    putBe16(out, 10, uint16_t(rowsOff - 8));
+    putBe32(out, 4, tableSize - 8);
+    putBe32(out, 8, rowsOff - 8);
     putBe32(out, 12, stringsOff - 8);
     putBe32(out, 16, dataOff - 8);
     putBe32(out, 20, nameOff);
     putBe16(out, 24, uint16_t(cols.size()));
-    putBe16(out, 26, uint16_t(rowWidth));
+    putBe16(out, 26, rowWidth);
     putBe32(out, 28, uint32_t(rows.size()));
 
-    auto writeValue = [&](size_t at, uint8_t type, const Value& v) {
-        switch (type) {
-            case U8: case S8: out[at] = uint8_t(v.i); break;
-            case U16: case S16: putBe16(out, at, uint16_t(v.i)); break;
-            case U32: case S32: putBe32(out, at, uint32_t(v.i)); break;
-            case U64: case S64: putBe64(out, at, v.i); break;
-            case Str: putBe32(out, at, stringAt.at(v.s)); break;
-            case Data: putBe32(out, at, 0); putBe32(out, at + 4, 0); break;
-            default: break;
-        }
-    };
-    size_t pos = 0x20;
-    for (size_t c = 0; c < cols.size(); ++c) {
-        out[pos] = uint8_t((cols[c].constant ? kFlagName | kFlagDefault : kFlagName | kFlagRow) | cols[c].type);
-        putBe32(out, pos + 1, colNames[c]);
-        pos += 5;
-        if (cols[c].constant) {
-            if (!rows.empty()) writeValue(pos, cols[c].type, rows[0][c]);
-            pos += typeSize(cols[c].type);
-        }
-    }
-    for (size_t r = 0; r < rows.size(); ++r) {
-        size_t at = rowsOff + r * rowWidth;
-        for (size_t c = 0; c < cols.size(); ++c) {
-            if (cols[c].constant) continue;
-            writeValue(at, cols[c].type, rows[r][c]);
-            at += typeSize(cols[c].type);
-        }
-    }
-    std::memcpy(out.data() + stringsOff, strings.data(), strings.size());
+    out.insert(out.end(), columnData.begin(), columnData.end());
+    out.insert(out.end(), rowData.begin(), rowData.end());
+    out.insert(out.end(), strings.begin(), strings.end());
+    out.insert(out.end(), dataTable.begin(), dataTable.end());
     return out;
 }
 
@@ -302,9 +356,10 @@ struct Prepared {
     std::string path, dir, name;
     uint32_t storedSize = 0, size = 0;
     const Source* src = nullptr;
+    std::vector<uint8_t> compressedData;
 };
 
-std::vector<Prepared> prepare(const std::vector<Source>& sources) {
+std::vector<Prepared> prepare(const std::vector<Source>& sources, const BuildOptions& opts) {
     // Last source wins for each path.
     std::map<std::string, size_t> byKey;
     for (size_t i = 0; i < sources.size(); ++i) byKey[pathKey(sources[i].path)] = i;
@@ -329,18 +384,41 @@ std::vector<Prepared> prepare(const std::vector<Source>& sources) {
             if (ec) throw std::runtime_error("can't read " + s.file.string());
             if (sz > 0xFFFFFFFFull) throw std::runtime_error(p.path + " is too big for a CPK (over 4 GB)");
             p.storedSize = p.size = uint32_t(sz);
+            if (opts.compress && sz >= 256) {
+                std::ifstream in(s.file, std::ios::binary);
+                if (!in) throw std::runtime_error("can't open " + s.file.string());
+                std::vector<uint8_t> raw(static_cast<size_t>(sz));
+                if (!in.read(reinterpret_cast<char*>(raw.data()), static_cast<std::streamsize>(raw.size())))
+                    throw std::runtime_error("can't read " + s.file.string());
+                auto packed = crilayla::compress(raw.data(), raw.size());
+                if (packed.size() < raw.size()) {
+                    p.storedSize = static_cast<uint32_t>(packed.size());
+                    p.compressedData = std::move(packed);
+                }
+            }
         }
         p.src = &s;
         out.push_back(std::move(p));
     }
-    std::sort(out.begin(), out.end(), [](const Prepared& a, const Prepared& b) { return comparePaths(a.path, b.path) < 0; });
+    std::sort(out.begin(), out.end(), [](const Prepared& a, const Prepared& b) {
+        auto key = [](const std::string& path) {
+            std::string result;
+            result.reserve(path.size());
+            for (unsigned char c : path) {
+                if (c == '_') c = '~';
+                result.push_back(char(std::tolower(c)));
+            }
+            return result;
+        };
+        return key(a.path) < key(b.path);
+    });
     return out;
 }
 
 std::vector<uint8_t> tocTable(const std::vector<Prepared>& files, const std::vector<uint64_t>& offsets) {
     std::vector<OutColumn> cols = {
         {"DirName", Str}, {"FileName", Str}, {"FileSize", U32}, {"ExtractSize", U32},
-        {"FileOffset", U64}, {"ID", U32}, {"UserString", Str, true},
+        {"FileOffset", U64}, {"ID", U32}, {"UserString", Str, Storage::Constant},
     };
     std::vector<std::vector<Value>> rows;
     rows.reserve(files.size());
@@ -351,8 +429,9 @@ std::vector<uint8_t> tocTable(const std::vector<Prepared>& files, const std::vec
 }
 
 struct Layout {
-    std::vector<uint8_t> tocChunk;
-    uint64_t contentOffset = 0, contentSize = 0, fileSize = 0;
+    std::vector<uint8_t> tocChunk, etocChunk;
+    uint64_t contentOffset = 0, contentSize = 0, fileSize = 0, etocOffset = 0;
+    uint64_t tocSize = 0;
     std::vector<uint64_t> offsets;  // TOC FileOffset per file (relative to the TOC chunk)
 };
 
@@ -360,7 +439,9 @@ Layout layout(const std::vector<Prepared>& files, uint16_t align) {
     Layout l;
     l.offsets.assign(files.size(), 0);
     // The table's size doesn't depend on the offsets (fixed-width column), so one sizing pass.
-    l.tocChunk = wrapChunk("TOC ", tocTable(files, l.offsets), kChunkAlign);
+    auto tocData = tocTable(files, l.offsets);
+    l.tocSize = 16 + tocData.size();
+    l.tocChunk = wrapChunk("TOC ", tocData, kChunkAlign);
     l.contentOffset = kHeaderChunkSize + l.tocChunk.size();
     uint64_t at = l.contentOffset;
     for (size_t i = 0; i < files.size(); ++i) {
@@ -368,7 +449,20 @@ Layout layout(const std::vector<Prepared>& files, uint16_t align) {
         at += alignUp(files[i].storedSize, align);
     }
     l.contentSize = at - l.contentOffset;
-    l.fileSize = at;
+
+    // Match SwitchPatch's ETOC structure: one row per file plus a terminator.
+    std::vector<OutColumn> etocCols = {
+        {"UpdateDateTime", U64}, {"LocalDir", Str, Storage::PerRow},
+    };
+    std::vector<std::vector<Value>> etocRows;
+    etocRows.reserve(files.size() + 1);
+    for (size_t i = 0; i < files.size(); ++i)
+        etocRows.push_back({intValue(569143605520244480ULL), textValue("")});
+    etocRows.push_back({intValue(0), textValue("")});
+    l.etocChunk = wrapChunk("ETOC", buildTable("CpkEtocInfo", etocCols, etocRows), 1);
+    l.etocOffset = at;
+    l.fileSize = at + l.etocChunk.size();
+
     l.tocChunk = wrapChunk("TOC ", tocTable(files, l.offsets), kChunkAlign);
     if (kHeaderChunkSize + l.tocChunk.size() != l.contentOffset) throw std::logic_error("CPK table size changed");
     return l;
@@ -376,36 +470,89 @@ Layout layout(const std::vector<Prepared>& files, uint16_t align) {
 
 std::vector<uint8_t> headerChunk(const std::vector<Prepared>& files, const Layout& l, const BuildOptions& o) {
     uint64_t packed = 0, data = 0;
-    std::set<std::string> dirs;
     for (const auto& f : files) {
         packed += f.storedSize;
         data += f.size;
-        if (!f.dir.empty()) dirs.insert(f.dir);
     }
+    uint64_t enabledTotal = packed + data;
+
+    // Match CPK-Toolkit's CRI-compatible 35-column CpkHeader.
     std::vector<OutColumn> cols = {
-        {"UpdateDateTime", U64}, {"FileSize", U64}, {"ContentOffset", U64}, {"ContentSize", U64},
-        {"TocOffset", U64}, {"TocSize", U64}, {"TocCrc", U32}, {"HtocOffset", U64}, {"HtocSize", U64},
-        {"EtocOffset", U64}, {"EtocSize", U64}, {"ItocOffset", U64}, {"ItocSize", U64}, {"ItocCrc", U32},
-        {"GtocOffset", U64}, {"GtocSize", U64}, {"GtocCrc", U32}, {"HgtocOffset", U64}, {"HgtocSize", U64},
-        {"EnabledPackedSize", U64}, {"EnabledDataSize", U64}, {"TotalDataSize", U64}, {"Tocs", U32},
-        {"Files", U32}, {"Groups", U32}, {"Attrs", U32}, {"TotalFiles", U32}, {"Directories", U32},
-        {"Updates", U32}, {"Version", U16}, {"Revision", U16}, {"Align", U16}, {"Sorted", U16},
-        {"EnableFileName", U16}, {"EID", U16}, {"CpkMode", U32}, {"Tvers", Str}, {"Comment", Str},
-        {"Codec", U32}, {"DpkItoc", U32}, {"EnableTocCrc", U16}, {"EnableFileCrc", U16}, {"CrcMode", U32},
-        {"CrcTable", Data},
+        {"UpdateDateTime", U64},
+        {"FileSize", U64, Storage::Constant},
+        {"ContentOffset", U64},
+        {"ContentSize", U64},
+        {"TocOffset", U64},
+        {"TocSize", U64},
+        {"TocCrc", U32, Storage::Constant},
+        {"EtocOffset", U64},
+        {"EtocSize", U64},
+        {"ItocOffset", U64, Storage::Constant},
+        {"ItocSize", U64, Storage::Constant},
+        {"ItocCrc", U32, Storage::Constant},
+        {"GtocOffset", U64, Storage::Constant},
+        {"GtocSize", U64, Storage::Constant},
+        {"GtocCrc", U32, Storage::Constant},
+        {"EnabledPackedSize", U64},
+        {"EnabledDataSize", U64},
+        {"TotalDataSize", U64, Storage::Constant},
+        {"Tocs", U32, Storage::Constant},
+        {"Files", U32},
+        {"Groups", U32},
+        {"Attrs", U32},
+        {"TotalFiles", U32, Storage::Constant},
+        {"Directories", U32, Storage::Constant},
+        {"Updates", U32, Storage::Constant},
+        {"Version", U16},
+        {"Revision", U16},
+        {"Align", U16},
+        {"Sorted", U16},
+        {"EID", U16, Storage::Constant},
+        {"CpkMode", U32},
+        {"Tvers", Str},
+        {"Comment", Str, Storage::Constant},
+        {"Codec", U32},
+        {"DpkItoc", U32},
     };
+
     std::vector<Value> row = {
-        intValue(0), intValue(l.fileSize), intValue(l.contentOffset), intValue(l.contentSize),
-        intValue(kHeaderChunkSize), intValue(l.tocChunk.size()), intValue(0), intValue(0), intValue(0),
-        intValue(0), intValue(0), intValue(0), intValue(0), intValue(0),
-        intValue(0), intValue(0), intValue(0), intValue(0), intValue(0),
-        intValue(packed), intValue(data), intValue(l.contentSize), intValue(1),
-        intValue(files.size()), intValue(0), intValue(0), intValue(files.size()), intValue(dirs.size()),
-        intValue(0), intValue(7), intValue(14), intValue(o.align), intValue(1),
-        intValue(1), intValue(0), intValue(1), textValue(o.tool), textValue(""),
-        intValue(0), intValue(0), intValue(0), intValue(0), intValue(0),
-        emptyBytes(),
+        intValue(1),
+        intValue(l.fileSize),
+        intValue(l.contentOffset),
+        intValue(l.contentSize),
+        intValue(kHeaderChunkSize),
+        intValue(l.tocSize),
+        intValue(0),
+        intValue(l.etocOffset),
+        intValue(128),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(enabledTotal),
+        intValue(enabledTotal),
+        intValue(0),
+        intValue(0),
+        intValue(files.size()),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(0),
+        intValue(7),
+        intValue(1),
+        intValue(o.align),
+        intValue(1),
+        intValue(0),
+        intValue(1),
+        textValue(o.tool),
+        textValue(""),
+        intValue(0),
+        intValue(0),
     };
+
     auto chunk = wrapChunk("CPK ", buildTable("CpkHeader", cols, {row}), kChunkAlign);
     if (chunk.size() != kHeaderChunkSize) throw std::logic_error("CPK header too big");
     std::memcpy(chunk.data() + kHeaderChunkSize - 6, "(c)CRI", 6);
@@ -445,128 +592,54 @@ std::string pathKey(std::string_view path) {
     return toLower(k);
 }
 
+
 Info read(const fs::path& cpk) {
-    std::ifstream in(cpk, std::ios::binary);
-    if (!in) throw std::runtime_error("can't open " + cpk.filename().string());
-    std::error_code ec;
-    uint64_t fileSize = fs::file_size(cpk, ec);
-    if (ec || fileSize < 0x10) corrupt("too small");
-    auto header = readChunk(in, 0, "CPK ", fileSize);
-    if (header.rows.empty()) corrupt("empty header");
-
+    cpk_toolkit::Archive archive(cpk.string());
     Info info;
-    info.fileSize = fileSize;
-    info.mode = uint32_t(header.num(0, "CpkMode"));
-    info.align = uint16_t(header.num(0, "Align"));
-    info.sorted = header.num(0, "Sorted") != 0;
-    info.tool = header.text(0, "Tvers");
-    uint64_t tocOffset = header.num(0, "TocOffset");
-    uint64_t contentOffset = header.num(0, "ContentOffset");
-    if (!tocOffset)
-        throw std::runtime_error("this CPK has no file names (it lists files by number only), so its files can't be used");
-    uint64_t base = contentOffset ? std::min(tocOffset, contentOffset) : tocOffset;
-
-    auto toc = readChunk(in, tocOffset, "TOC ", fileSize);
-    info.entries.reserve(toc.rows.size());
-    for (size_t r = 0; r < toc.rows.size(); ++r) {
+    info.sorted = true;
+    info.mode = static_cast<uint32_t>(archive.mode());
+    info.align = archive.alignment();
+    info.tool = archive.version();
+    info.fileSize = archive.total_size();
+    const auto& files = archive.files();
+    info.entries.reserve(files.size());
+    for (size_t i = 0; i < files.size(); ++i) {
+        const auto& f = files[i];
         Entry e;
-        e.dir = toc.text(r, "DirName");
-        e.name = toc.text(r, "FileName");
-        if (e.dir == "<NULL>") e.dir.clear();
-        e.storedSize = uint32_t(toc.num(r, "FileSize"));
-        e.size = uint32_t(toc.num(r, "ExtractSize", e.storedSize));
-        e.offset = toc.num(r, "FileOffset") + base;
-        e.id = uint32_t(toc.num(r, "ID", r));
-        if (e.name.empty() || e.offset + e.storedSize > fileSize) corrupt("file table entry " + std::to_string(r));
+        e.dir = f.dir_name;
+        e.name = f.file_name;
+        e.offset = archive.content_offset() + f.offset;
+        if (archive.cpk_header().has_column("TocOffset"))
+            e.offset = 0x800ULL + f.offset;
+        e.storedSize = f.file_size;
+        e.size = f.extract_size;
+        e.id = f.id;
         info.entries.push_back(std::move(e));
+        if (i && comparePaths(info.entries[i-1].path(), info.entries[i].path()) > 0)
+            info.sorted = false;
     }
+    if (info.entries.size() < 2) info.sorted = true;
     return info;
 }
 
-bool isCrilayla(const uint8_t* data, size_t size) { return size >= 0x10 && std::memcmp(data, "CRILAYLA", 8) == 0; }
+bool isCrilayla(const uint8_t* data, size_t size) {
+    return crilayla::is_compressed(data, size);
+}
 
-std::vector<uint8_t> decompressCrilayla(const uint8_t* in, size_t inSize) {
-    if (!isCrilayla(in, inSize)) throw std::runtime_error("not CRILAYLA data");
-    const uint32_t uncompressedSize = le32(in + 8);
-    const uint32_t headerOffset = le32(in + 12);
-    // Layout: 16-byte header, compressed stream (headerOffset bytes, read backwards from its
-    // end), then the first 0x100 bytes of the file stored as they are.
-    if (uint64_t(headerOffset) + 0x10 + 0x100 > inSize) corrupt("CRILAYLA header");
-    std::vector<uint8_t> out(size_t(uncompressedSize) + 0x100);
-    std::memcpy(out.data(), in + 0x10 + headerOffset, 0x100);
-
-    int64_t inPos = int64_t(0x10) + headerOffset - 1;
-    const int64_t inStart = 0x10;
-    uint8_t bitPool = 0;
-    int bitsLeft = 0;
-    auto bits = [&](int count) -> uint32_t {
-        uint32_t v = 0;
-        int produced = 0;
-        while (produced < count) {
-            if (bitsLeft == 0) {
-                if (inPos < inStart) corrupt("CRILAYLA stream");
-                bitPool = in[inPos--];
-                bitsLeft = 8;
-            }
-            int take = std::min(bitsLeft, count - produced);
-            v = (v << take) | ((bitPool >> (bitsLeft - take)) & ((1u << take) - 1));
-            bitsLeft -= take;
-            produced += take;
-        }
-        return v;
-    };
-
-    const int64_t outEnd = int64_t(0x100) + uncompressedSize - 1;
-    uint64_t written = 0;
-    static constexpr int vle[4] = {2, 3, 5, 8};
-    while (written < uncompressedSize) {
-        if (bits(1)) {
-            int64_t ref = outEnd - int64_t(written) + int64_t(bits(13)) + 3;
-            uint64_t length = 3;
-            int level = 0;
-            for (; level < 4; ++level) {
-                uint32_t part = bits(vle[level]);
-                length += part;
-                if (part != (1u << vle[level]) - 1) break;
-            }
-            if (level == 4) {
-                uint32_t part;
-                do {
-                    part = bits(8);
-                    length += part;
-                } while (part == 0xFF);
-            }
-            for (uint64_t i = 0; i < length && written < uncompressedSize; ++i) {
-                if (ref > outEnd || ref < 0) corrupt("CRILAYLA reference");
-                out[size_t(outEnd - int64_t(written))] = out[size_t(ref--)];
-                ++written;
-            }
-        } else {
-            out[size_t(outEnd - int64_t(written))] = uint8_t(bits(8));
-            ++written;
-        }
-    }
-    return out;
+std::vector<uint8_t> decompressCrilayla(const uint8_t* data, size_t size) {
+    return crilayla::decompress(data, size);
 }
 
 void extract(const fs::path& cpk, const Entry& e, const fs::path& dest) {
-    std::ifstream in(cpk, std::ios::binary);
-    if (!in) throw std::runtime_error("can't open " + cpk.filename().string());
-    fs::create_directories(dest.parent_path());
+    cpk_toolkit::Archive archive(cpk.string());
+    const auto* file = archive.find_file(e.path());
+    if (!file) throw std::runtime_error("File not found: " + e.path());
+    auto data = archive.extract_file(*file);
+    if (!dest.parent_path().empty()) fs::create_directories(dest.parent_path());
     std::ofstream out(dest, std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("can't write " + dest.string());
-    if (e.compressed() && e.storedSize >= 0x10) {
-        auto head = readAt(in, e.offset, 8);
-        if (std::memcmp(head.data(), "CRILAYLA", 8) == 0) {
-            auto stored = readAt(in, e.offset, e.storedSize);
-            auto data = decompressCrilayla(stored.data(), stored.size());
-            if (!out.write(reinterpret_cast<const char*>(data.data()), std::streamsize(data.size())))
-                throw std::runtime_error("write error (is the SD card full?)");
-            return;
-        }
-    }
-    std::vector<char> buf(1 << 20);
-    copyRange(in, e.offset, e.storedSize, out, buf, {});
+    out.write(reinterpret_cast<const char*>(data.data()), static_cast<std::streamsize>(data.size()));
+    if (!out) throw std::runtime_error("write error: " + dest.string());
 }
 
 std::vector<std::string> extractAll(const fs::path& cpk, const fs::path& destDir, const ProgressFn& progress) {
@@ -575,7 +648,7 @@ std::vector<std::string> extractAll(const fs::path& cpk, const fs::path& destDir
     uint64_t total = 0, done = 0;
     for (const auto& e : info.entries) total += e.storedSize;
     for (const auto& e : info.entries) {
-        auto path = e.path();
+        const auto path = e.path();
         if (!isSafeRelativePath(path)) continue;
         extract(cpk, e, destDir / fs::path(path));
         written.push_back(path);
@@ -585,57 +658,62 @@ std::vector<std::string> extractAll(const fs::path& cpk, const fs::path& destDir
     return written;
 }
 
-uint64_t predictSize(std::vector<Source> sources, const BuildOptions& opts) {
-    auto files = prepare(sources);
-    return layout(files, opts.align).fileSize;
+static cpk_toolkit::Builder makeToolkitBuilder(
+    const std::vector<Source>& sources, const BuildOptions& opts) {
+    cpk_toolkit::Builder builder(cpk_toolkit::CpkMode::FileNames);
+    builder.set_alignment(opts.align);
+    builder.set_version(opts.tool);
+    builder.set_compression(opts.compress);
+
+    std::map<std::string, std::unique_ptr<cpk_toolkit::Archive>> archives;
+    for (const auto& source : sources) {
+        if (!source.fromArchive()) {
+            builder.add_file(source.file.string(), source.path);
+            continue;
+        }
+        const std::string key = source.fromCpk.string();
+        auto& archive = archives[key];
+        if (!archive) archive = std::make_unique<cpk_toolkit::Archive>(key);
+        const auto* entry = archive->find_file(source.entry.path());
+        if (!entry) throw std::runtime_error("Source entry not found: " + source.entry.path());
+        builder.add_file_raw_from_file(
+            key, archive->raw_file_offset(*entry), entry->file_size,
+            source.path, source.entry.size);
+    }
+    return builder;
 }
 
-BuildResult build(const fs::path& out, std::vector<Source> sources, const BuildOptions& opts, const ProgressFn& progress) {
-    auto files = prepare(sources);
-    auto l = layout(files, opts.align);
-    auto header = headerChunk(files, l, opts);
+uint64_t predictSize(std::vector<Source> sources, const BuildOptions& opts) {
+    auto builder = makeToolkitBuilder(sources, opts);
+    return builder.predict_size();
+}
 
-    if (out.has_parent_path()) fs::create_directories(out.parent_path());
-    std::ofstream o(out, std::ios::binary | std::ios::trunc);
-    if (!o) throw std::runtime_error("can't write " + out.string());
-    auto put = [&](const void* p, size_t n) {
-        if (!o.write(static_cast<const char*>(p), std::streamsize(n)))
-            throw std::runtime_error("write error (is the SD card full?)");
-    };
-    put(header.data(), header.size());
-    put(l.tocChunk.data(), l.tocChunk.size());
-
-    uint64_t total = 0, done = 0;
-    for (const auto& f : files) total += f.storedSize;
-    std::vector<char> buf(1 << 20);
-    std::vector<char> zeros(opts.align ? opts.align : 1, 0);
-    auto advanced = [&](uint64_t n) {
-        done += n;
-        if (progress && !progress(done, total)) throw std::runtime_error("cancelled");
-    };
-    // Keep the last-used archive open: original-file sources come from one CPK in a row.
-    std::unique_ptr<std::ifstream> archive;
-    fs::path archivePath;
-    for (const auto& f : files) {
-        const Source& s = *f.src;
-        if (s.fromArchive()) {
-            if (!archive || archivePath != s.fromCpk) {
-                archive = std::make_unique<std::ifstream>(s.fromCpk, std::ios::binary);
-                archivePath = s.fromCpk;
-                if (!*archive) throw std::runtime_error("can't open " + s.fromCpk.string());
-            }
-            copyRange(*archive, s.entry.offset, f.storedSize, o, buf, advanced);
-        } else {
-            std::ifstream in(s.file, std::ios::binary);
-            if (!in) throw std::runtime_error("can't open " + s.file.string());
-            copyRange(in, 0, f.storedSize, o, buf, advanced);
+BuildResult build(const fs::path& out, std::vector<Source> sources,
+                  const BuildOptions& opts, const ProgressFn& progress) {
+    auto builder = makeToolkitBuilder(sources, opts);
+    uint64_t totalBytes = 0;
+    for (const auto& source : sources) {
+        if (source.fromArchive()) totalBytes += source.entry.storedSize;
+        else {
+            std::error_code ec;
+            totalBytes += fs::file_size(source.file, ec);
         }
-        uint64_t pad = alignUp(f.storedSize, opts.align) - f.storedSize;
-        if (pad) put(zeros.data(), size_t(pad));
     }
-    o.close();
-    if (!o) throw std::runtime_error("write error (is the SD card full?)");
-    return {files.size(), l.fileSize};
+    // Ensure Android output directory exists before Toolkit opens the temporary CPK.
+    if (!out.parent_path().empty()) {
+        std::error_code dir_ec;
+        fs::create_directories(out.parent_path(), dir_ec);
+        if (dir_ec)
+            throw std::runtime_error("Cannot create CPK output directory: " +
+                                     out.parent_path().string() + ": " + dir_ec.message());
+    }
+
+    builder.build(out.string(), [&](const std::string&, size_t current, size_t total) {
+        if (!progress) return;
+        const uint64_t done = total ? totalBytes * current / total : totalBytes;
+        if (!progress(done, totalBytes)) throw std::runtime_error("cancelled");
+    });
+    return {read(out).entries.size(), fs::file_size(out)};
 }
 
 }  // namespace mm::cpk

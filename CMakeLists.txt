@@ -15,7 +15,7 @@
 cmake_minimum_required(VERSION 3.15)
 
 set(APP_BUILD OFF)
-if(PLATFORM_DESKTOP OR PLATFORM_SWITCH)
+if(PLATFORM_DESKTOP OR PLATFORM_SWITCH OR PLATFORM_ANDROID)
     set(APP_BUILD ON)
     set(BOREALIS_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/library/borealis/library)
     include(${BOREALIS_LIBRARY}/cmake/commonOption.cmake)
@@ -37,6 +37,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 # ---------------------------------------------------------------- core library
 file(GLOB CORE_SOURCES source/core/*.cpp)
 add_library(mmcore STATIC ${CORE_SOURCES})
+target_sources(mmcore PRIVATE source/core/cpktoolkit/cpk.cpp source/core/cpktoolkit/utf.cpp source/core/cpktoolkit/crilayla.cpp)
 target_include_directories(mmcore PUBLIC source/core source/third_party)
 target_compile_options(mmcore PRIVATE -Wall -Wextra)
 
@@ -45,6 +46,74 @@ if(NINTENDO_SWITCH OR PLATFORM_SWITCH)
     target_include_directories(mmcore PUBLIC $ENV{DEVKITPRO}/portlibs/switch/include)
     target_link_directories(mmcore PUBLIC $ENV{DEVKITPRO}/portlibs/switch/lib)
     target_link_libraries(mmcore PUBLIC curl mbedtls mbedx509 mbedcrypto archive zstd lz4 lzma bz2 expat z)
+elseif(PLATFORM_ANDROID)
+    # Native Android ARM64 static dependencies
+    set(ANDROID_DEPS "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android-deps/install")
+
+    add_library(android_zlib STATIC IMPORTED GLOBAL)
+    set_target_properties(android_zlib PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libz.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_lzma STATIC IMPORTED GLOBAL)
+    set_target_properties(android_lzma PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/liblzma.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_zstd STATIC IMPORTED GLOBAL)
+    set_target_properties(android_zstd PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libzstd.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_lz4 STATIC IMPORTED GLOBAL)
+    set_target_properties(android_lz4 PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/liblz4.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_bz2 STATIC IMPORTED GLOBAL)
+    set_target_properties(android_bz2 PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libbz2.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_archive STATIC IMPORTED GLOBAL)
+    set_target_properties(android_archive PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libarchive.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_crypto STATIC IMPORTED GLOBAL)
+    set_target_properties(android_crypto PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libcrypto.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_ssl STATIC IMPORTED GLOBAL)
+    set_target_properties(android_ssl PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libssl.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_curl STATIC IMPORTED GLOBAL)
+    set_target_properties(android_curl PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libcurl.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    add_library(android_ssh2 STATIC IMPORTED GLOBAL)
+    set_target_properties(android_ssh2 PROPERTIES
+        IMPORTED_LOCATION "${ANDROID_DEPS}/lib/libssh2.a"
+        INTERFACE_INCLUDE_DIRECTORIES "${ANDROID_DEPS}/include")
+
+    target_link_libraries(mmcore PUBLIC
+        android_archive
+        android_bz2
+        android_lz4
+        android_lzma
+        android_zstd
+        android_curl
+        android_ssh2
+        android_ssl
+        android_crypto
+        android_zlib
+        m
+        dl
+    )
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(LIBARCHIVE REQUIRED IMPORTED_TARGET libarchive)
@@ -78,11 +147,17 @@ set(APP_RESOURCES ${CMAKE_BINARY_DIR}/resources)
 set(BRLS_RES ${CMAKE_CURRENT_SOURCE_DIR}/library/borealis/resources)
 add_custom_target(app_resources
     COMMAND ${CMAKE_COMMAND} -E make_directory ${APP_RESOURCES}
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/material ${APP_RESOURCES}/material
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/i18n/en-US ${APP_RESOURCES}/i18n/en-US
-    COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/img/sys ${APP_RESOURCES}/img/sys
     COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/resources ${APP_RESOURCES}
 )
+if(PLATFORM_ANDROID)
+    add_custom_command(TARGET app_resources POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES} ${APP_RESOURCES})
+else()
+    add_custom_command(TARGET app_resources POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/material ${APP_RESOURCES}/material
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/i18n/en-US ${APP_RESOURCES}/i18n/en-US
+        COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/img/sys ${APP_RESOURCES}/img/sys)
+endif()
 if(PLATFORM_DESKTOP)
     add_custom_command(TARGET app_resources POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy_directory ${BRLS_RES}/font ${APP_RESOURCES}/font)
@@ -91,6 +166,18 @@ endif()
 file(GLOB_RECURSE APP_SOURCES source/app/*.cpp)
 list(APPEND APP_SOURCES source/third_party/qrcodegen/qrcodegen.cpp)
 set(APP_PLATFORM_LIB ${CMAKE_THREAD_LIBS_INIT})
+if(PLATFORM_ANDROID)
+    set(BOREALIS_WEBP_DIR
+        "${CMAKE_CURRENT_SOURCE_DIR}/library/borealis/android-project/app/src/main/jniLibs/arm64-v8a")
+    add_library(android_webp SHARED IMPORTED GLOBAL)
+    set_target_properties(android_webp PROPERTIES
+        IMPORTED_LOCATION "${BOREALIS_WEBP_DIR}/libwebp.so"
+        INTERFACE_INCLUDE_DIRECTORIES
+            "${CMAKE_CURRENT_SOURCE_DIR}/third_party/webp/include"
+    )
+    list(APPEND APP_PLATFORM_LIB android_webp)
+endif()
+
 if(PLATFORM_DESKTOP)
     pkg_check_modules(LIBWEBP REQUIRED IMPORTED_TARGET libwebp)
     list(APPEND APP_PLATFORM_LIB PkgConfig::LIBWEBP)
@@ -104,8 +191,31 @@ program_target(Compendium "${APP_SOURCES}")
 add_dependencies(Compendium app_resources)
 target_include_directories(Compendium PRIVATE source/app)
 target_compile_options(Compendium PRIVATE -ffunction-sections -fdata-sections -Wall)
+target_compile_definitions(mmcore PRIVATE $<$<BOOL:${APP_BUILD}>:MM_ANDROID_APP>)
+
 target_compile_definitions(Compendium PRIVATE APP_VERSION="${PROJECT_VERSION}" APP_TITLE="${APP_TITLE}")
+
 target_link_libraries(Compendium PRIVATE mmcore borealis ${APP_PLATFORM_LIB})
+
+if(PLATFORM_ANDROID)
+    find_program(ANDROID_PATCHELF patchelf)
+    find_program(ANDROID_READELF readelf)
+
+    if(NOT ANDROID_PATCHELF OR NOT ANDROID_READELF)
+        message(FATAL_ERROR "patchelf dan readelf diperlukan untuk pembersihan ELF Android.")
+    endif()
+
+    add_custom_command(TARGET Compendium POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            "-DTARGET_FILE=$<TARGET_FILE:Compendium>"
+            "-DPATCHELF=${ANDROID_PATCHELF}"
+            "-DREADELF=${ANDROID_READELF}"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/android_fix_elf.cmake"
+        VERBATIM
+        COMMENT "Memperbaiki dependensi dan membersihkan RUNPATH Android"
+    )
+endif()
+
 
 if(PLATFORM_SWITCH)
     set(APP_ICON ${CMAKE_CURRENT_SOURCE_DIR}/resources/img/icon.jpg)

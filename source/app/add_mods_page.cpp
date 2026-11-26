@@ -8,9 +8,45 @@
 #include "install_flow.hpp"
 #include "qrcodegen/qrcodegen.hpp"
 
+#ifdef __ANDROID__
+#include <SDL_system.h>
+#include <jni.h>
+#endif
+
 namespace app {
 
 namespace {
+#ifdef __ANDROID__
+AddModsPage* activeAddModsPage = nullptr;
+
+void openAndroidStoragePicker() {
+    JNIEnv* env = reinterpret_cast<JNIEnv*>(SDL_AndroidGetJNIEnv());
+    if (!env) {
+        brls::Application::notify("Android storage picker is unavailable");
+        return;
+    }
+    jclass cls = env->FindClass("org/libsdl/app/PlatformUtils");
+    if (!cls) {
+        env->ExceptionClear();
+        brls::Application::notify("Cannot open Android storage picker");
+        return;
+    }
+    jmethodID method = env->GetStaticMethodID(cls, "openStoragePicker", "()V");
+    if (!method) {
+        env->ExceptionClear();
+        env->DeleteLocalRef(cls);
+        brls::Application::notify("Storage picker method is unavailable");
+        return;
+    }
+    env->CallStaticVoidMethod(cls, method);
+    if (env->ExceptionCheck()) {
+        env->ExceptionClear();
+        brls::Application::notify("Could not open Android file picker");
+    }
+    env->DeleteLocalRef(cls);
+}
+#endif
+
 // What the inbox takes.
 std::string inboxKinds() { return ".zip, .7z, .rar or .cpk files"; }
 }  // namespace
@@ -69,6 +105,9 @@ std::string modified(const mm::fs::path& p) {
 }  // namespace
 
 AddModsPage::AddModsPage() : brls::Box(brls::Axis::ROW) {
+#ifdef __ANDROID__
+    activeAddModsPage = this;
+#endif
     setGrow(1);
 
     auto* left = ui::vbox();
@@ -110,6 +149,9 @@ AddModsPage::AddModsPage() : brls::Box(brls::Axis::ROW) {
 
 AddModsPage::~AddModsPage() {
     *alive_ = false;
+#ifdef __ANDROID__
+    if (activeAddModsPage == this) activeAddModsPage = nullptr;
+#endif
     server_.stop();
 }
 
@@ -150,6 +192,27 @@ void AddModsPage::rebuild() {
     };
     section("From SD card · switch/Compendium/inbox");
     brls::View* first = nullptr;
+#ifdef __ANDROID__
+    auto* importRow = ui::focusRow();
+    ui::tappable(importRow, ui::Tap::Act);
+    importRow->addView(ui::label(ui::icon::file, 24, ui::accent()));
+    auto* importText = ui::vbox();
+    importText->setWidth(330);
+    importText->setMarginLeft(12);
+    importText->addView(ui::label("Import from storage", 17, ui::text()));
+    auto* importSub = ui::label("Choose a .zip, .7z, .rar or .cpk file", 14, ui::muted());
+    importSub->setMarginTop(3);
+    importText->addView(importSub);
+    importRow->addView(importText);
+    importRow->registerClickAction([this](brls::View*) {
+        if (!paneFree()) return true;
+        openAndroidStoragePicker();
+        return true;
+    });
+    importRow->updateActionHint(brls::BUTTON_A, "Choose file");
+    list_->addView(importRow);
+    first = importRow;
+#endif
     auto files = inboxFiles();
     const auto& installed = AppState::get().snapshot().installedKeys;
     for (const auto& path : files) {
@@ -184,7 +247,7 @@ void AddModsPage::rebuild() {
         if (!first || p.string() == focusedPath_) first = row;
     }
     if (files.empty()) {
-        auto* none = ui::label("No files yet. Copy " + inboxKinds() + " into switch/Compendium/inbox on the SD card.", 15, ui::muted(), false);
+        auto* none = ui::label("No files yet. Use Import from storage or copy " + inboxKinds() + " into switch/Compendium/inbox on the SD card.", 15, ui::muted(), false);
         none->setMargins(0, 6, 6, 6);
         list_->addView(none);
     }
@@ -575,4 +638,58 @@ void AddModsPage::openLink(const std::string& url) {
     });
 }
 
+
+#ifdef __ANDROID__
+void AddModsPage::onAndroidStorageFileSelected(const std::string& source) {
+    auto* page = activeAddModsPage;
+    if (!page) return;
+    auto alive = page->alive_;
+    brls::sync([page, alive, source] {
+        if (!*alive) return;
+        mm::fs::path src(source);
+        std::string name = src.filename().string();
+        if (!(mm::isSupportedArchiveName(name) || mm::endsWithI(name, ".cpk"))) {
+            brls::Application::notify("Unsupported file. Choose ZIP, 7Z, RAR or CPK.");
+            return;
+        }
+
+        std::error_code ec;
+        auto inbox = AppState::get().inboxDir();
+        mm::fs::create_directories(inbox, ec);
+        if (ec) {
+            brls::Application::notify("Cannot access Compendium inbox: " + ec.message());
+            return;
+        }
+
+        auto dest = inbox / name;
+        for (unsigned int suffix = 2; mm::fs::exists(dest, ec); ++suffix) {
+            dest = inbox / (src.stem().string() + " (" + std::to_string(suffix) + ")" +
+                            src.extension().string());
+        }
+        ec.clear();
+        mm::fs::copy_file(src, dest, mm::fs::copy_options::none, ec);
+        if (ec) {
+            brls::Application::notify("Could not copy selected archive: " + ec.message());
+            return;
+        }
+
+        page->focusedPath_ = dest.string();
+        page->rebuild();
+        page->installInboxFile(dest);
+    });
+}
+#endif
+
 }  // namespace app
+
+#ifdef __ANDROID__
+extern "C" JNIEXPORT void JNICALL
+Java_com_borealis_demo_DemoActivity_nativeOnStorageFileSelected(
+    JNIEnv* env, jobject, jstring path) {
+    if (!path) return;
+    const char* chars = env->GetStringUTFChars(path, nullptr);
+    if (!chars) return;
+    app::AddModsPage::onAndroidStorageFileSelected(chars);
+    env->ReleaseStringUTFChars(path, chars);
+}
+#endif

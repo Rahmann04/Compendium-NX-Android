@@ -70,6 +70,7 @@ struct Source {
 struct BuildOptions {
     uint16_t align = 0x800;
     std::string tool = "Compendium";
+    bool compress = false;
 };
 
 struct BuildResult {

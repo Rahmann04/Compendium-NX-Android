@@ -39,6 +39,9 @@ private:
     bool expanded_ = true;
     Page active_ = Page::Browse;
     brls::Box* gameRow_ = nullptr;
+    brls::Box* playRow_ = nullptr;
+    brls::Label* playIcon_ = nullptr;
+    brls::Label* playText_ = nullptr;
     brls::Label* gameIcon_ = nullptr;
     brls::Label* gameName_ = nullptr;
     brls::Label* gameCaption_ = nullptr;

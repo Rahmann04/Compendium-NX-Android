@@ -111,6 +111,7 @@ public:
 
     // ---- sources (network; call from runNetwork, not the UI thread)
     mm::gb::ModDetails fetchDetails(const mm::gb::ModSummary& s);
+    mm::gb::Page searchGlobal(const std::string& query, int page, mm::Game game);
     // A pasted link or a GameBanana number -> something installable. Throws with a message.
     mm::gb::ModDetails resolveLink(const std::string& url, mm::Game game);
     // Install or update p5rcbt from its latest GitHub release (file thread).
@@ -159,6 +160,9 @@ private:
     Settings settings_;
 
     WorkQueue net_{networkThreads()};
+#ifdef __ANDROID__
+    WorkQueue imageNet_{1};
+#endif
     static int networkThreads();
     WorkQueue files_{1};
     std::atomic<int> fileJobs_{0};
@@ -173,6 +177,11 @@ private:
     std::string originalsStatus_;  // guarded by statusMutex_
     std::shared_ptr<mm::GameFileList> fileList_;  // guarded by statusMutex_
 
+    struct ImageRequest {
+        brls::Image* image;
+        std::function<bool()> stillWanted;
+    };
+    std::map<std::string, std::vector<ImageRequest>> imageLoads_;
     std::list<std::pair<std::string, std::shared_ptr<std::string>>> images_;
 };
 

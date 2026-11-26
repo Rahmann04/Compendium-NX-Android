@@ -21,6 +21,9 @@ public:
     AddModsPage();
     ~AddModsPage() override;
     brls::View* getDefaultFocus() override;
+#ifdef __ANDROID__
+    static void onAndroidStorageFileSelected(const std::string& path);
+#endif
 
 private:
     void rebuild();

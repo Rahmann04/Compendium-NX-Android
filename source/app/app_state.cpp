@@ -5,6 +5,7 @@
 #include <ctime>
 #include <new>
 #include <regex>
+#include <stdexcept>
 
 #include <webp/decode.h>
 
@@ -81,6 +82,41 @@ AppState::AppState() = default;
 void AppState::init() {
     dataDir_ = platform::sdRoot() / "switch" / "Compendium";
     mm::fs::create_directories(dataDir_);
+#ifdef __ANDROID__
+    // Preserve the original CPK pipeline with a valid empty PATCH1 on Android.
+    const auto androidPatch = dataDir_ / "original" / "p5r" / "PATCH1.CPK";
+    std::error_code patchEc;
+    mm::fs::create_directories(androidPatch.parent_path(), patchEc);
+    if (patchEc) throw std::runtime_error("Cannot create Android PATCH1 directory: " + patchEc.message());
+
+    bool rebuildPatch = !mm::fs::exists(androidPatch, patchEc);
+    if (patchEc) throw std::runtime_error("Cannot inspect Android PATCH1: " + patchEc.message());
+
+    if (!rebuildPatch) {
+        bool readable = false;
+        bool hasEntries = false;
+        try {
+            const auto existingPatch = mm::cpk::read(androidPatch);
+            readable = true;
+            hasEntries = !existingPatch.entries.empty();
+        } catch (const std::exception&) {
+            mm::fs::remove(androidPatch, patchEc);
+            if (patchEc) throw std::runtime_error("Cannot delete invalid Android PATCH1: " + patchEc.message());
+            rebuildPatch = true;
+        }
+
+        if (readable && hasEntries) {
+            throw std::runtime_error("Android PATCH1 hook must be empty; refusing to use game files.");
+        }
+    }
+
+    if (rebuildPatch) mm::cpk::build(androidPatch, {});
+
+    const auto emptyPatch = mm::cpk::read(androidPatch);
+    if (!emptyPatch.entries.empty()) {
+        throw std::runtime_error("Android PATCH1 hook must be empty; refusing to use game files.");
+    }
+#endif
     std::error_code ec;
     mm::fs::create_directories(inboxDir(), ec);
     for (const auto& g : mm::kGames) gameVersions_[g.game] = platform::gameVersion(g.game);
@@ -118,9 +154,11 @@ void AppState::init() {
         // first run or unreadable: defaults
     }
 
+#ifndef __ANDROID__
     // The game's own file list, if it has been read before.
     auto list = std::make_shared<mm::GameFileList>();
     if (list->load(dataDir_ / "original" / "p5r" / "files.txt")) fileList_ = list;
+#endif
     library_->setPathResolver(pathResolver());
 
     auto staleWork = workDir();
@@ -152,11 +190,19 @@ void AppState::init() {
             mm::log::info(std::to_string(all.size()) + " mods installed, " + std::to_string(on) + " on · load mods with " +
                           mm::deployModeKey(lib.mode(mm::Game::P5R)) + " · " +
                           (b.target.empty() ? std::string("nothing built") : "built " + b.target + " (" + std::to_string(b.files) + " files)") +
-                          (lib.hasOriginalPatch(mm::Game::P5R) ? " · game's own PATCH1 kept" : " · game's own PATCH1 not read yet") +
+                          (lib.hasOriginalPatch(mm::Game::P5R) ? " · game's own PATCH1 kept" :
+#ifdef __ANDROID__
+                           " · Android mod-only build")
+#else
+                           " · game's own PATCH1 not read yet")
+#endif
+                          +
                           (mm::p5rcbt::installed(lib.sdRoot(), mm::Game::P5R) ? " · p5rcbt installed" : ""));
         }
         publishSnapshot(lib);
+#ifndef __ANDROID__
         if (platform::runningAsGame(mm::Game::P5R)) captureGameFiles(lib);
+#endif
     }, [](const std::string& err) {
         if (!err.empty()) brls::Application::notify("Couldn't read your mod list: " + err);
     });
@@ -243,6 +289,9 @@ void AppState::shutdown() {
     mm::log::info("---- closed");
     if (http_) http_->cancelAll();
     net_.stop();
+#ifdef __ANDROID__
+    imageNet_.stop();
+#endif
     files_.stop();
 }
 
@@ -348,7 +397,30 @@ void AppState::cacheDetails(const mm::gb::ModDetails& d) {
     details_[d.summary.sourceKey] = d;
 }
 
-mm::gb::ModDetails AppState::fetchDetails(const mm::gb::ModSummary& s) { return gb_->details(s.id); }
+mm::gb::ModDetails AppState::fetchDetails(const mm::gb::ModSummary& s) {
+    if (s.sourceKey.rfind("gh:", 0) == 0) {
+        auto d = resolveLink(s.profileUrl, game_);
+        d.summary = s;
+        return d;
+    }
+    if (s.sourceKey.rfind("gb:", 0) == 0 || s.sourceKey.empty())
+        return gb_->details(s.id);
+    throw std::runtime_error("Unsupported mod source: " + s.sourceKey);
+}
+
+mm::gb::Page AppState::searchGlobal(const std::string& query, int page, mm::Game game) {
+    mm::gb::Page result;
+    std::set<int64_t> gamebananaIds;
+    std::set<std::string> sourceKeys;
+    std::string errors;
+    bool anySourceWorked = false;
+    bool gamebananaLast = true;
+    if (!anySourceWorked)
+        throw std::runtime_error(errors.empty() ? "No search source is available." : errors);
+
+    result.isLast = gamebananaLast;
+    return result;
+}
 
 mm::gb::ModDetails AppState::resolveLink(const std::string& rawUrl, mm::Game game) {
     std::string url = rawUrl;
@@ -478,23 +550,44 @@ void AppState::loadImage(brls::Image* image, const std::string& url, std::functi
     if (url.empty()) return;
     for (auto it = images_.begin(); it != images_.end(); ++it) {
         if (it->first == url) {
-            images_.splice(images_.begin(), images_, it);  // mark as recently used
+            images_.splice(images_.begin(), images_, it);
             setImageData(image, *it->second);
             return;
         }
     }
-    runNetwork([this, image, url, stillWanted] {
+
+    auto [pending, inserted] = imageLoads_.try_emplace(url);
+    pending->second.push_back({image, std::move(stillWanted)});
+    if (!inserted) return;
+
+#ifdef __ANDROID__
+    imageNet_.post([this, url] {
+#else
+    runNetwork([this, url] {
+#endif
         auto data = std::make_shared<std::string>();
         try {
             *data = http_->get(url);
         } catch (const std::exception& e) {
             brls::Logger::warning("image {} failed: {}", url, e.what());
+            brls::sync([this, url] { imageLoads_.erase(url); });
             return;
         }
-        brls::sync([this, image, url, stillWanted, data] {
+
+        brls::sync([this, url, data] {
+            auto pending = imageLoads_.find(url);
+            if (pending == imageLoads_.end()) return;
+
+            auto requests = std::move(pending->second);
+            imageLoads_.erase(pending);
+
             images_.emplace_front(url, data);
             while (images_.size() > 80) images_.pop_back();
-            if (stillWanted && stillWanted()) setImageData(image, *data);
+
+            for (const auto& request : requests) {
+                if (request.image && request.stillWanted && request.stillWanted())
+                    setImageData(request.image, *data);
+            }
         });
     });
 }

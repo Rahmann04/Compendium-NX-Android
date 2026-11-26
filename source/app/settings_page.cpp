@@ -94,6 +94,7 @@ SettingsPage::SettingsPage() : brls::Box(brls::Axis::COLUMN) {
     if (mode == mm::DeployMode::P5rcbt && !snap.p5rcbtInstalled)
         note(std::string(ui::icon::warning) + "  p5rcbt isn't installed, so the game won't load these mods. Install it below.", ui::warn());
 
+#ifndef __ANDROID__
     // ---------------------------------------------------------------- the game's own files
     section("The game's own files");
     auto* origCell = new brls::DetailCell();
@@ -113,6 +114,8 @@ SettingsPage::SettingsPage() : brls::Box(brls::Axis::COLUMN) {
         note(std::string(ui::icon::info) + "  Your PATCH1.CPK is built without the game's own PATCH1 files. Press A above to see how "
                                            "to read them.",
              ui::accent());
+
+#endif // !__ANDROID__
 
     // ---------------------------------------------------------------- p5rcbt
     section("p5rcbt · Skyline plugin by Raytwo");
@@ -242,8 +245,13 @@ SettingsPage::SettingsPage() : brls::Box(brls::Axis::COLUMN) {
     content->addView(cache);
 
     auto* rebuild = new brls::DetailCell();
+#ifdef __ANDROID__
+    rebuild->setText("Rebuild mod files");
+    rebuild->setDetailText("Rebuilds PATCH1.CPK and restores missing mod files");
+#else
     rebuild->setText("Build the game's mod files again");
     rebuild->setDetailText("Fixes missing or damaged files");
+#endif
     rebuild->registerClickAction([this, rebuild, game](brls::View*) {
         runJob(rebuild, "Building again…",
                [game](mm::Library& lib, auto progress) {
