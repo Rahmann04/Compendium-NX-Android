@@ -49,7 +49,7 @@ if(NINTENDO_SWITCH OR PLATFORM_SWITCH)
 elseif(PLATFORM_ANDROID)
     # Native Android ARM64 static dependencies
     set(ANDROID_DEPS
-        "${CMAKE_CURRENT_SOURCE_DIR}/third_party/android-deps/install"
+        "${CMAKE_CURRENT_SOURCE_DIR}/build-android-deps/install"
         CACHE PATH "Android ARM64 dependency install prefix"
     )
 

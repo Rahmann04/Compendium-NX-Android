@@ -94,6 +94,13 @@ jobs:
       - name: Build Compendium native library
         run: cmake --build build-android --parallel 2
 
+      - name: Strip native debug information
+        run: |
+          STRIP="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip"
+          test -x "$STRIP"
+          "$STRIP" --strip-debug build-android/libCompendium.so
+          ls -lh build-android/libCompendium.so
+
       - name: Package native library
         run: |
           test -s build-android/libCompendium.so

@@ -4,3 +4,6 @@ build-*/
 *.elf
 *.nacp
 .DS_Store
+
+# Generated Android dependency installation
+third_party/android-deps/install/
